@@ -1,0 +1,23 @@
+next_3x_1:
+    MOV 0(#hello), R2
+    MOV R2, -2(FP)
+    MOV -2(FP), -(SP)
+    JSR PC, calculate
+    MOV R0, -2(FP)
+    MOV 4(FP), R2
+    ASR #1, R2
+    BEQ L1
+    MOV 4(FP), R2
+    MUL #3, R2
+    INC R2
+    MOV R2, -2(FP)
+    BR L2
+L1:
+    MOV 4(FP), R2
+    ASR #1, R2
+    MOV R2, -2(FP)
+L2:
+    MOV -2(FP), R0
+    RTS PC
+hello:
+    .byte 72, 101, 108, 108, 111, 44, 32, 119, 111, 114, 108, 100, 0, 0, 0, 0
