@@ -585,10 +585,10 @@ package body Tagatha.Arch.Pdp11 is
                       when Op_Store       => "MOV",
                       when Op_EQ          => "BNE",
                       when Op_NE          => "BEQ",
-                      when Op_LT          => "BLT",
-                      when Op_LE          => "BLE",
-                      when Op_GT          => "BGT",
-                      when Op_GE          => "BGE");
+                      when Op_LT          => "BLE",
+                      when Op_LE          => "BLT",
+                      when Op_GT          => "BGE",
+                      when Op_GE          => "BGT");
 
       Src_1_Op : Pdp11_Operand_Instance'Class renames
                    Pdp11_Operand_Instance'Class (Src_1);
