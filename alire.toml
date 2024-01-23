@@ -6,8 +6,8 @@ authors = ["Fraser Wilson"]
 maintainers = ["Fraser Wilson <fraser@thewhitelion.eu>"]
 maintainers-logins = ["blancolioni"]
 licenses = "GPL-3.0-or-later"
-website = ""
-tags = []
+website = "https://github.com/blancolioni/tagatha"
+tags = ["compiler"]
 
 [build-switches]
 "*".ada_version = "ada2022"
