@@ -134,6 +134,18 @@ package body Tagatha.Arch is
       Close (File);
    end Save;
 
+   ----------------
+   -- Set_Option --
+   ----------------
+
+   procedure Set_Option
+     (This : in out Instance'Class;
+      Item : Generate_Option)
+   is
+   begin
+      This.Options (Item) := True;
+   end Set_Option;
+
    -------------------------
    -- Set_Source_Location --
    -------------------------

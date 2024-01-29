@@ -7,7 +7,18 @@ package Tagatha.Arch is
 
    function Image (This : Operand_Interface) return String is abstract;
 
+   type Generate_Option is (No_Recursion);
+
    type Instance is abstract tagged private;
+
+   procedure Set_Option
+     (This : in out Instance'Class;
+      Item : Generate_Option);
+
+   function Option
+     (This : Instance'Class;
+      Item : Generate_Option)
+      return Boolean;
 
    procedure Put_Line
      (This : in out Instance'Class;
@@ -165,6 +176,8 @@ private
    package Data_Buffer_Vectors is
      new Ada.Containers.Indefinite_Vectors (Positive, String);
 
+   type Generate_Option_Array is array (Generate_Option) of Boolean;
+
    type Instance is abstract tagged
       record
          Location_Changed : Boolean := True;
@@ -173,8 +186,15 @@ private
          Lines            : Line_Lists.List;
          Data_Bits        : Natural := 0;
          Data_Buffer      : Data_Buffer_Vectors.Vector;
+         Options          : Generate_Option_Array := [others => False];
       end record;
 
    subtype Dispatch is Instance'Class;
+
+   function Option
+     (This : Instance'Class;
+      Item : Generate_Option)
+      return Boolean
+   is (This.Options (Item));
 
 end Tagatha.Arch;
