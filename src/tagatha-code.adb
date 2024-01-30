@@ -954,9 +954,7 @@ package body Tagatha.Code is
                          Routine.Transfer_Code (Index);
       begin
 
-         Target.Put_Instruction (";", Instruction'Image);
-
-         --  Ada.Text_IO.Put_Line (Instruction'Image);
+         Target.Put_Comment (Instruction'Image);
 
          Target.Set_Source_Location (Instruction.Line, Instruction.Column);
          for Label of Instruction.Labels loop

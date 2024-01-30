@@ -8,13 +8,15 @@ package body Tagatha.Arch.M6502 is
 
    function Hex_Image (X : Word_64) return String;
 
+   function To_6502_Label (Name : String) return String;
+
    function Local_Label (L : Positive) return String;
 
    function Indexed_Label
      (Routine_Name : String;
       Index        : Positive)
       return String
-   is (Routine_Name
+   is (To_6502_Label (Routine_Name)
        & "__"
        & (if Index >= 10
          then [Character'Val (Index / 10 + 48)]
@@ -186,8 +188,6 @@ package body Tagatha.Arch.M6502 is
                                   Name    => Tagatha.Names.To_Name (Name),
                                   Address => Address));
 
-   function To_6502_Label (Name : String) return String;
-
    ---------
    -- ADC --
    ---------
@@ -225,7 +225,8 @@ package body Tagatha.Arch.M6502 is
       if This.Option (No_Recursion) then
          for I in 1 .. Arguments loop
             This.Put_Line
-              (Argument_Label (Name, I)
+              (".var "
+               & Argument_Label (Name, I)
                & " = "
                & Hex_Image (This.Next_ZP));
             This.Next_ZP := @ + 1;
@@ -233,7 +234,8 @@ package body Tagatha.Arch.M6502 is
 
          for I in 1 .. Locals loop
             This.Put_Line
-              (Local_Label (Name, I)
+              (".var "
+               & Local_Label (Name, I)
                & " = "
                & Hex_Image (This.Next_ZP));
             This.Next_ZP := @ + 1;
@@ -244,22 +246,22 @@ package body Tagatha.Arch.M6502 is
 
       if This.Options (No_Recursion) then
          if Arguments >= 1 then
-            This.Put_Instruction ("STA", Argument_Label (Name, 1));
+            This.Put_Instruction ("sta", Argument_Label (Name, 1));
          end if;
          if Arguments >= 2 then
-            This.Put_Instruction ("STX", Argument_Label (Name, 2));
+            This.Put_Instruction ("stx", Argument_Label (Name, 2));
          end if;
          if Arguments >= 3 then
-            This.Put_Instruction ("STY", Argument_Label (Name, 3));
+            This.Put_Instruction ("sty", Argument_Label (Name, 3));
          end if;
 
       else
-         This.Put_Instruction ("LDA", "FP");
-         This.Put_Instruction ("PHA");
-         This.Put_Instruction ("TSX");
-         This.Put_Instruction ("STX", "FP");
+         This.Put_Instruction ("lda", "FP");
+         This.Put_Instruction ("pha");
+         This.Put_Instruction ("tsx");
+         This.Put_Instruction ("stx", "FP");
          for I in 1 .. Locals loop
-            This.Put_Instruction ("DEX");
+            This.Put_Instruction ("dex");
          end loop;
       end if;
    end Begin_Routine;
@@ -277,11 +279,11 @@ package body Tagatha.Arch.M6502 is
    is
    begin
       if Condition = Always then
-         This.Put_Instruction ("JMP", Local_Label (Destination));
+         This.Put_Instruction ("jmp", Local_Label (Destination));
       else
          This.LDA (Operand);
          This.Put_Instruction
-           ((if Condition = Z then "BEQ" else "BNE"),
+           ((if Condition = Z then "beq" else "bne"),
             Local_Label (Destination));
       end if;
    end Branch;
@@ -320,7 +322,7 @@ package body Tagatha.Arch.M6502 is
       end loop;
 
       This.Put_Instruction
-        ("JSR", Name.Image);
+        ("jsr", Name.Image);
 
       This.A := Tagatha.Names.Empty_Name;
       This.X := Tagatha.Names.Empty_Name;
@@ -367,7 +369,7 @@ package body Tagatha.Arch.M6502 is
      (This : in out Instance)
    is
    begin
-      This.Put_Instruction ("RTS");
+      This.Put_Instruction ("rts");
    end End_Routine;
 
    -----------
@@ -452,7 +454,7 @@ package body Tagatha.Arch.M6502 is
    is
       Prefix : constant String :=
                  (case This.Content is
-                     when General_Content => "R",
+                     when General_Content => "r",
                      when Floating_Point_Content => "AC");
       Index  : constant Character := Character'Val (48 + Natural (This.R));
    begin
@@ -487,7 +489,7 @@ package body Tagatha.Arch.M6502 is
       if not Op.Is_Accumulator
         and then Current_Op /= New_Op
       then
-         This.Put_Instruction ("LDA", New_Op);
+         This.Put_Instruction ("lda", New_Op);
          This.A := Tagatha.Names.To_Name (New_Op);
       end if;
    end LDA;
@@ -587,6 +589,18 @@ package body Tagatha.Arch.M6502 is
            else " -" & Img);
    end Offset_Image;
 
+   -----------------
+   -- Put_Comment --
+   -----------------
+
+   overriding procedure Put_Comment
+     (This    : in out Instance;
+      Comment : String)
+   is
+   begin
+      This.Lines.Append ("// " & Comment);
+   end Put_Comment;
+
    ---------------------
    -- Put_Data_Buffer --
    ---------------------
@@ -625,7 +639,7 @@ package body Tagatha.Arch.M6502 is
                      M6502_Operand_Instance'Class (Operand);
    begin
       if not Op.Is_Accumulator then
-         This.Put_Instruction ("STA", Op.Image);
+         This.Put_Instruction ("sta", Op.Image);
          This.A := Tagatha.Names.To_Name (Op.Image);
       end if;
    end STA;
@@ -723,12 +737,12 @@ package body Tagatha.Arch.M6502 is
                       when Op_Xor         => "XOR",
                       when Op_Dereference => "MOV",
                       when Op_Store       => "MOV",
-                      when Op_EQ          => "BNE",
-                      when Op_NE          => "BEQ",
-                      when Op_LT          => "BLE",
-                      when Op_LE          => "BLT",
-                      when Op_GT          => "BGE",
-                      when Op_GE          => "BGT");
+                      when Op_EQ          => "bne",
+                      when Op_NE          => "beq",
+                      when Op_LT          => "bmi",
+                      when Op_LE          => "bmi",
+                      when Op_GT          => "bpl",
+                      when Op_GE          => "bpl");
 
       Src_1_Op : M6502_Operand_Instance'Class renames
                    M6502_Operand_Instance'Class (Src_1);
@@ -805,19 +819,22 @@ package body Tagatha.Arch.M6502 is
          This.Put_Instruction (Op_Name, Src_2_Image, "AC0");
          This.Put_Instruction ("STF", "AC0", Dst_Image);
       else
-         Src_To_Dst (1);
          if Op in Compare_Operator then
-            This.Put_Instruction ("CLR", "R1");
+            This.Put_Instruction ("lda", "#0");
+            This.Put_Instruction ("sta", "r0");
+            This.A := Tagatha.Names.To_Name ("#$00");
+            This.LDA (Src_1);
             case Src_1_Op.Content is
                when General_Content =>
-                  This.Put_Instruction ("CMP", Src_2_Image, Dst_Image);
+                  This.Put_Instruction ("cmp", Src_2_Image);
                when Floating_Point_Content =>
                   This.Put_Instruction ("CMPF", Src_2_Image, Dst_Image);
             end case;
-            This.Put_Instruction (Op_Name, "1$");
-            This.Put_Instruction ("INC", "R1");
-            This.Name_Label ("1$");
-            This.Put_Instruction ("MOV", "R1", Dst_Image);
+            This.Put_Instruction (Op_Name, "!br+");
+            This.Put_Instruction ("inc", "r0");
+            This.Name_Label ("!br");
+            This.Put_Instruction ("lda", "r0");
+            This.STA (Dst_Op);
          elsif Op_Name = "ADD" and then Src_2_Image = "#$01" then
             This.Put_Instruction ("INC", Dst_Image);
             if Tagatha.Names.To_String (This.A) = Dst_Image then
@@ -839,7 +856,7 @@ package body Tagatha.Arch.M6502 is
          elsif Op = Op_Multiply then
             This.LDA (Dst);
             This.LDX (Src_2);
-            This.Put_Instruction ("JSR", "_multiply_8");
+            This.Put_Instruction ("jsr", "_multiply_8");
             This.STA (Dst);
          else
             This.Put_Instruction (Op_Name, Src_2_Image, Dst_Image);

@@ -31,6 +31,10 @@ package Tagatha.Arch is
       Arg_2       : String := "";
       Arg_3       : String := "");
 
+   procedure Put_Comment
+     (This : in out Instance;
+      Comment : String);
+
    procedure Set_Source_Location
      (This   : in out Instance'Class;
       Line   : Positive;

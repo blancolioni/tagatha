@@ -73,6 +73,18 @@ package body Tagatha.Arch is
       This.Put_Line (Img & ":");
    end Local_Label;
 
+   -----------------
+   -- Put_Comment --
+   -----------------
+
+   procedure Put_Comment
+     (This    : in out Instance;
+      Comment : String)
+   is
+   begin
+      This.Lines.Append ("; " & Comment);
+   end Put_Comment;
+
    ---------------------
    -- Put_Instruction --
    ---------------------
@@ -110,7 +122,7 @@ package body Tagatha.Arch is
    is
    begin
       if This.Location_Changed then
-         This.Lines.Append (";" & This.Line'Image & This.Column'Image);
+         This.Put_Comment (This.Line'Image & This.Column'Image);
          This.Location_Changed := False;
       end if;
       This.Lines.Append (Line);

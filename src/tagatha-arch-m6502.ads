@@ -124,6 +124,10 @@ private
 
    overriding procedure Put_Data_Buffer (This : in out Instance);
 
+   overriding procedure Put_Comment
+     (This    : in out Instance;
+      Comment : String);
+
    type M6502_Operand_Instance is
      abstract new Operand_Interface with
       record
