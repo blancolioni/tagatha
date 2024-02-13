@@ -101,12 +101,14 @@ package body Tagatha.Code is
       begin
          if Last.Bits = 0 or else Last.Data.Is_Empty then
             Last.Bits := Bits;
-         elsif Last.Bits /= Bits then
-            Data_List.Append
-              (Labeled_Data'
-                 (Tagatha.Names.To_Name (""), Bits, []));
          end if;
       end;
+
+      if Data_List.Last_Element.Bits /= Bits then
+         Data_List.Append
+           (Labeled_Data'
+              (Tagatha.Names.To_Name (""), Bits, []));
+      end if;
 
       declare
          Item : Data_Lists.List renames
@@ -137,13 +139,17 @@ package body Tagatha.Code is
    -------------------
 
    procedure Begin_Routine
-     (This : in out Instance;
-      Name : String)
+     (This    : in out Instance;
+      Name    : String;
+      Options : Routine_Options'Class := Default_Options)
    is
    begin
       This.Routine_List.Append
         (Routine_Record'
-           (Tagatha.Names.To_Name (Name), others => <>));
+           (Tagatha.Names.To_Name (Name),
+            Options  => Routine_Options (Options),
+            Last_Arg => Options.Arg_Count,
+            others   => <>));
       This.Active_Routine := This.Routine_List.Last;
    end Begin_Routine;
 
@@ -223,7 +229,8 @@ package body Tagatha.Code is
             Labels         => [],
             Line           => This.Line,
             Column         => This.Column,
-            Name           => External_Operand (Name, General_Content, False),
+            Name           =>
+              Name_Operand (Name, General_Content, False, False),
             Argument_Count => Argument_Count,
             Result_Count   => Result_Count,
             Actuals        => [],
@@ -357,23 +364,45 @@ package body Tagatha.Code is
                                     Temp        => This.Next_Temporary));
                begin
                   if Instruction.Op = Op_Store then
-                     declare
-                        Store : constant Instruction_Record :=
-                                  Instruction_Record'
-                                    (Class     => Transfer,
-                                     Labels    => Instruction.Labels,
-                                     Line      => Instruction.Line,
-                                     Column    => Instruction.Column,
-                                     Src_1     => Src_1,
-                                     Src_2     => Offset,
-                                     T_Op      => Op_Store,
-                                     Dst       => Src_2);
-                     begin
-                        if Trace_Transfers then
-                           Ada.Text_IO.Put_Line (Store'Image);
-                        end if;
-                        Append (Store);
-                     end;
+                     if Src_2.Class = Stack_Operand
+                       and then Src_2.Reference
+                       and then Offset.Word = 0
+                     then
+                        declare
+                           Move : constant Instruction_Record :=
+                                    Instruction_Record'
+                                      (Class     => Transfer,
+                                       Labels    => Instruction.Labels,
+                                       Line      => Instruction.Line,
+                                       Column    => Instruction.Column,
+                                       Src_1     => No_Operand,
+                                       Src_2     => Src_1,
+                                       T_Op      => Op_Identity,
+                                       Dst       =>
+                                         (Src_2 with delta
+                                            Reference => False));
+                        begin
+                           Append (Move);
+                        end;
+                     else
+                        declare
+                           Store : constant Instruction_Record :=
+                                     Instruction_Record'
+                                       (Class     => Transfer,
+                                        Labels    => Instruction.Labels,
+                                        Line      => Instruction.Line,
+                                        Column    => Instruction.Column,
+                                        Src_1     => Src_1,
+                                        Src_2     => Offset,
+                                        T_Op      => Op_Store,
+                                        Dst       => Src_2);
+                        begin
+                           if Trace_Transfers then
+                              Ada.Text_IO.Put_Line (Store'Image);
+                           end if;
+                           Append (Store);
+                        end;
+                     end if;
                   else
                      declare
                         Transfer : constant Instruction_Record :=
@@ -437,6 +466,18 @@ package body Tagatha.Code is
 
                   when Duplicate =>
                      Push_Operand (Operand_Stack.Last_Element);
+
+                  when Pop =>
+                     declare
+                        Dst : constant Operand_Record := Pop_Operand;
+                        Src : constant Operand_Record := Pop_Operand;
+                     begin
+                        Append
+                          (Instruction_Record'
+                             (Transfer, Instruction.Labels,
+                              Instruction.Line, Instruction.Column,
+                              No_Operand, Src, Op_Identity, Dst));
+                     end;
 
                   when Swap =>
                      declare
@@ -548,6 +589,15 @@ package body Tagatha.Code is
         (This.RW_Data_List, 32,
          [Word_64_Element (Conversions.Int_32_To_Word_64 (Value))]);
    end Data_RW;
+
+   ---------------------
+   -- Default_Options --
+   ---------------------
+
+   function Default_Options return Routine_Options'Class is
+   begin
+      return Routine_Options'(others => <>);
+   end Default_Options;
 
    -----------------
    -- Dereference --
@@ -817,6 +867,31 @@ package body Tagatha.Code is
                         Code (Index) := New_Instr;
                      end;
                      Changed := True;
+                  elsif Next.Class = Branch
+                    and then Next.Condition /= Always
+                    and then Instr.Class = Transfer
+                    and then Instr.T_Op = Op_Not
+                    and then Instr.Dst = Next.Branch_Op
+                  then
+                     declare
+                        New_Instr : Instruction_Record := Next;
+                     begin
+                        Ada.Text_IO.Put_Line
+                          ("improve: instr " & Instr'Image);
+                        Ada.Text_IO.Put_Line
+                          ("improve: next  " & Next'Image);
+                        New_Instr.Condition :=
+                          (if Next.Condition = Z then NZ else Z);
+                        New_Instr.Branch_Op := Instr.Src_2;
+                        for Label of Instr.Labels loop
+                           New_Instr.Labels.Append (Label);
+                        end loop;
+                        Code.Delete (Index);
+                        Code (Index) := New_Instr;
+                        Ada.Text_IO.Put_Line
+                          ("improve: new   " & New_Instr'Image);
+                     end;
+                     Changed := True;
                   else
                      Index := Index + 1;
                   end if;
@@ -856,7 +931,7 @@ package body Tagatha.Code is
       This.Append
         (Instruction_Record'
            (Call, [], This.Line, This.Column,
-            External_Operand (Name, General_Content, False),
+            Name_Operand (Name, General_Content, False, False),
             0, 0, [],
             Is_Subroutine => False,
             Is_Indirect   => False));
@@ -888,6 +963,9 @@ package body Tagatha.Code is
          Index   : Positive)
       is
 
+         Instruction : constant Instruction_Record :=
+                         Routine.Transfer_Code (Index);
+
          function Get_Operand
            (From   : Operand_Record;
             Is_Dst : Boolean := False)
@@ -907,6 +985,8 @@ package body Tagatha.Code is
                when No_Operand =>
                   return Target.No_Operand;
                when Stack_Operand =>
+                  pragma Assert (Is_Dst or else
+                                   not From.Reference, Instruction'Image);
                   case From.Stack_Op is
                      when Argument_Operand =>
                         return Target.Argument_Operand
@@ -925,8 +1005,9 @@ package body Tagatha.Code is
                   return Target.Constant_Operand
                     (From.Content, From.Word);
                when External_Operand =>
-                  return Target.External_Operand
-                    (Tagatha.Names.To_String (From.Name), From.Address);
+                  return Target.Name_Operand
+                    (Tagatha.Names.To_String (From.Name),
+                     From.Address, From.Imported);
                when Temporary_Operand =>
                   declare
                      Rec         : constant Temporary_Record :=
@@ -950,11 +1031,11 @@ package body Tagatha.Code is
 
          end Get_Operand;
 
-         Instruction : constant Instruction_Record :=
-                         Routine.Transfer_Code (Index);
       begin
 
-         Target.Put_Comment (Instruction'Image);
+         if False then
+            Target.Put_Comment (Instruction'Image);
+         end if;
 
          Target.Set_Source_Location (Instruction.Line, Instruction.Column);
          for Label of Instruction.Labels loop
@@ -1098,11 +1179,10 @@ package body Tagatha.Code is
       for Routine of This.Routine_List loop
 
          Improve (Routine);
-
          Target.Begin_Routine
            (Tagatha.Names.To_String (Routine.Name),
             Routine.Last_Arg, Routine.Last_Res,
-            Routine.Last_Loc);
+            Routine.Last_Loc, Routine.Options.Linkage);
 
          for Index in 1 .. Routine.Transfer_Code.Last_Index loop
             Update_Temporaries (Routine, Index);
@@ -1120,8 +1200,26 @@ package body Tagatha.Code is
       end loop;
 
       for Data of This.RO_Data_List loop
-         Target.Begin_Data (Tagatha.Names.To_String (Data.Name),
-                            Natural (Data.Bits));
+         Target.Begin_Data
+           (Tagatha.Names.To_String (Data.Name),
+            Natural (Data.Bits),
+            Read_Write => False);
+         for Datum of Data.Data loop
+            case Datum.Class is
+               when Word_64_Element =>
+                  Target.Datum (Datum.Value);
+               when Label_Element =>
+                  Target.Label_Datum (Tagatha.Names.To_String (Datum.Name));
+            end case;
+         end loop;
+         Target.End_Data;
+      end loop;
+
+      for Data of This.RW_Data_List loop
+         Target.Begin_Data
+           (Tagatha.Names.To_String (Data.Name),
+            Natural (Data.Bits),
+            Read_Write => True);
          for Datum of Data.Data loop
             case Datum.Class is
                when Word_64_Element =>
@@ -1219,6 +1317,14 @@ package body Tagatha.Code is
            (Pop, [], This.Line, This.Column, Item));
    end Pop;
 
+   procedure Pop
+     (This : in out Instance)
+   is
+   begin
+      This.Append
+        (Instruction_Record'(Stack, [], This.Line, This.Column, Pop));
+   end Pop;
+
    ------------------
    -- Pop_Argument --
    ------------------
@@ -1231,19 +1337,6 @@ package body Tagatha.Code is
    begin
       This.Pop (Argument_Operand (Index, Content));
    end Pop_Argument;
-
-   ------------------
-   -- Pop_External --
-   ------------------
-
-   procedure Pop_External
-     (This  : in out Instance;
-      Name    : String;
-      Content : Operand_Content := General_Content)
-   is
-   begin
-      This.Pop (External_Operand (Name, Content));
-   end Pop_External;
 
    ------------------
    -- Pop_Indirect --
@@ -1271,6 +1364,20 @@ package body Tagatha.Code is
    begin
       This.Pop (Local_Operand (Index, Content));
    end Pop_Local;
+
+   --------------
+   -- Pop_Name --
+   --------------
+
+   procedure Pop_Name
+     (This    : in out Instance;
+      Name    : String;
+      Extern  : Boolean;
+      Content : Operand_Content := General_Content)
+   is
+   begin
+      This.Pop (Name_Operand (Name, Content, False, Extern));
+   end Pop_Name;
 
    ----------------
    -- Pop_Result --
@@ -1349,32 +1456,34 @@ package body Tagatha.Code is
       This.Push (Constant_Operand (Value, Content));
    end Push_Constant;
 
-   -------------------
-   -- Push_External --
-   -------------------
-
-   procedure Push_External
-     (This    : in out Instance;
-      Name    : String;
-      Content : Operand_Content := General_Content;
-      Address : Boolean := False)
-   is
-   begin
-      This.Push (External_Operand (Name, Content, Address));
-   end Push_External;
-
    ----------------
    -- Push_Local --
    ----------------
 
    procedure Push_Local
-     (This  : in out Instance;
-      Index   : Local_Index;
-      Content : Operand_Content := General_Content)
+     (This      : in out Instance;
+      Index     : Local_Index;
+      Content   : Operand_Content := General_Content;
+      Reference : Boolean := False)
    is
    begin
-      This.Push (Local_Operand (Index, Content));
+      This.Push (Local_Operand (Index, Content, Reference));
    end Push_Local;
+
+   ---------------
+   -- Push_Name --
+   ---------------
+
+   procedure Push_Name
+     (This    : in out Instance;
+      Name    : String;
+      Extern  : Boolean;
+      Content : Operand_Content := General_Content;
+      Address : Boolean := False)
+   is
+   begin
+      This.Push (Name_Operand (Name, Content, Address, Extern));
+   end Push_Name;
 
    -----------------
    -- Push_Return --
@@ -1434,7 +1543,9 @@ package body Tagatha.Code is
          when Block =>
             Output.Put (if Value.Begin_Block then "BEGIN" else "END");
          when Branch =>
-            Output.Put ("B" & Value.Condition'Image & Value.Branch_To'Image);
+            Output.Put ("B" & Value.Condition'Image
+                        & " " & Value.Branch_Op'Image
+                        & Value.Branch_To'Image);
          when Call =>
             Output.Put
               ("CALL " & Value.Name'Image
@@ -1501,6 +1612,9 @@ package body Tagatha.Code is
             declare
                Index : constant String :=
                          Integer'Image (-Integer (Value.Index));
+               Ref    : constant String :=
+                          (if Value.Reference
+                           then "&" else "");
                Prefix : constant String :=
                           (case Value.Stack_Op is
                               when Argument_Operand =>
@@ -1512,7 +1626,7 @@ package body Tagatha.Code is
                               when Return_Operand   =>
                                 "ret");
             begin
-               Output.Put (Prefix & Index & Suffix);
+               Output.Put (Ref & Prefix & Index & Suffix);
             end;
          when Temporary_Operand =>
             case Value.Content is
@@ -1559,6 +1673,21 @@ package body Tagatha.Code is
       Close (File);
    end Save;
 
+   ------------------------
+   -- Set_Argument_Count --
+   ------------------------
+
+   function Set_Argument_Count
+     (This  : Routine_Options'Class;
+      Count : Argument_Count)
+      return Routine_Options'Class
+   is
+   begin
+      return Routine_Options'
+        (Routine_Options (This) with delta
+             Automatic_Arg_Count => False, Arg_Count => Count);
+   end Set_Argument_Count;
+
    ---------------
    -- Set_Label --
    ---------------
@@ -1571,6 +1700,19 @@ package body Tagatha.Code is
       This.Routine_List (This.Active_Routine).Set_Labels.Append (L);
       This.Place_Label (L);
    end Set_Label;
+
+   --------------------
+   -- Set_No_Linkage --
+   --------------------
+
+   function Set_No_Linkage
+     (This  : Routine_Options'Class)
+      return Routine_Options'Class
+   is
+   begin
+      return Routine_Options'
+        (Routine_Options (This) with delta Linkage => False);
+   end Set_No_Linkage;
 
    ---------------------
    -- Source_Location --
@@ -1594,15 +1736,19 @@ package body Tagatha.Code is
      (This  : in out Instance;
       Value : String)
    is
-      List : Data_Lists.List;
+      Length_List : Data_Lists.List;
+      Char_List   : Data_Lists.List;
    begin
+      Length_List.Append (Word_64_Element (Value'Length));
+      Append_Data_List (This.RO_Data_List, 32, Length_List);
+
       for Ch of Value loop
-         List.Append (Word_64_Element (Character'Pos (Ch)));
+         Char_List.Append (Word_64_Element (Character'Pos (Ch)));
       end loop;
       for I in 1 .. 4 - Value'Length mod 4 loop
-         List.Append (Word_64_Element (0));
+         Char_List.Append (Word_64_Element (0));
       end loop;
-      Append_Data_List (This.RO_Data_List, 8, List);
+      Append_Data_List (This.RO_Data_List, 32, Char_List);
    end String_Constant;
 
    ----------
@@ -1653,6 +1799,20 @@ package body Tagatha.Code is
             Column => 1,
             Src_1  => No_Operand,
             Src_2  => Evaluate (Src_1, Src_2, Op),
+            T_Op   => Op_Identity,
+            Dst    => T);
+      elsif Op = Op_Dereference
+        and then Src_1.Class = Stack_Operand
+        and then Src_1.Reference
+        and then Src_2.Word = 0
+      then
+         return Instruction_Record'
+           (Class  => Transfer,
+            Labels => [],
+            Line   => 1,
+            Column => 1,
+            Src_1  => No_Operand,
+            Src_2  => (Src_1 with delta Reference => False),
             T_Op   => Op_Identity,
             Dst    => T);
       else

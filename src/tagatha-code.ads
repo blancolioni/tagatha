@@ -53,9 +53,10 @@ package Tagatha.Code is
       Content : Operand_Content := General_Content);
 
    procedure Push_Local
-     (This  : in out Instance;
-      Index   : Local_Index;
-      Content : Operand_Content := General_Content);
+     (This      : in out Instance;
+      Index     : Local_Index;
+      Content   : Operand_Content := General_Content;
+      Reference : Boolean := False);
 
    procedure Pop_Local
      (This  : in out Instance;
@@ -72,15 +73,17 @@ package Tagatha.Code is
       Index   : Return_Index;
       Content : Operand_Content := General_Content);
 
-   procedure Push_External
+   procedure Push_Name
+     (This     : in out Instance;
+      Name     : String;
+      Extern   : Boolean;
+      Content  : Operand_Content := General_Content;
+      Address  : Boolean := False);
+
+   procedure Pop_Name
      (This    : in out Instance;
       Name    : String;
-      Content : Operand_Content := General_Content;
-      Address : Boolean := False);
-
-   procedure Pop_External
-     (This  : in out Instance;
-      Name    : String;
+      Extern  : Boolean;
       Content : Operand_Content := General_Content);
 
    procedure Pop_Indirect
@@ -99,6 +102,10 @@ package Tagatha.Code is
 
    procedure Drop
      (This : in out Instance);
+
+   procedure Pop
+     (This : in out Instance);
+   --  pop top two values from stack, store second in first
 
    procedure Duplicate
      (This : in out Instance);
@@ -175,9 +182,30 @@ package Tagatha.Code is
    procedure End_Block
      (This : in out Instance);
 
+   type Routine_Options is abstract tagged private;
+
+   function Default_Options return Routine_Options'Class;
+
+   function Set_Argument_Count
+     (Count : Argument_Count)
+      return Routine_Options'Class;
+
+   function Set_Argument_Count
+     (This  : Routine_Options'Class;
+      Count : Argument_Count)
+      return Routine_Options'Class;
+
+   function Set_No_Linkage
+      return Routine_Options'Class;
+
+   function Set_No_Linkage
+     (This  : Routine_Options'Class)
+      return Routine_Options'Class;
+
    procedure Begin_Routine
-     (This : in out Instance;
-      Name : String);
+     (This    : in out Instance;
+      Name    : String;
+      Options : Routine_Options'Class := Default_Options);
 
    procedure End_Routine
      (This : in out Instance);
@@ -208,11 +236,27 @@ private
    function Has_Label (L : Label) return Boolean
    is (L /= No_Label);
 
+   type Routine_Options is tagged
+      record
+         Automatic_Arg_Count : Boolean := True;
+         Arg_Count           : Argument_Count := 0;
+         Linkage             : Boolean := True;
+      end record;
+
+   function Set_Argument_Count
+     (Count : Argument_Count)
+      return Routine_Options'Class
+   is (Default_Options.Set_Argument_Count (Count));
+
+   function Set_No_Linkage
+     return Routine_Options'Class
+   is (Default_Options.Set_No_Linkage);
+
    type Instruction_Class is
      (Block, Branch, Call, Operate, Pop, Push, Stack, Transfer);
 
    type Stack_Instruction_Class is
-     (Drop, Duplicate, Swap);
+     (Drop, Duplicate, Pop, Swap);
 
    type Operand_Class is
      (No_Operand,
@@ -240,14 +284,16 @@ private
             when No_Operand =>
                null;
             when Stack_Operand =>
-               Stack_Op : Stack_Operand_Type;
-               Index    : Operand_Index;
+               Stack_Op  : Stack_Operand_Type;
+               Index     : Operand_Index;
+               Reference : Boolean := False;
             when Constant_Operand =>
                Bits     : Bit_Count;
                Word     : Word_64;
             when External_Operand =>
                Name     : Tagatha.Names.Tagatha_Name;
                Address  : Boolean;
+               Imported : Boolean;
             when Temporary_Operand =>
                Temp     : Temporary_Index;
          end case;
@@ -289,22 +335,25 @@ private
       return Operand_Record
    is (Constant_Operand, False, 0, Content, 32, Value);
 
-   function External_Operand
-     (Name    : String;
-      Content : Operand_Content;
-      Address : Boolean := False)
+   function Name_Operand
+     (Name     : String;
+      Content  : Operand_Content;
+      Address  : Boolean;
+      Imported : Boolean)
       return Operand_Record
    is (External_Operand, False, 0, Content,
-       Tagatha.Names.To_Name (Name), Address);
+       Tagatha.Names.To_Name (Name), Address, Imported);
 
    function Local_Operand
-     (Index   : Local_Index;
-      Content : Operand_Content)
+     (Index     : Local_Index;
+      Content   : Operand_Content;
+      Reference : Boolean := False)
       return Operand_Record
-   is (Class    => Stack_Operand,
-       Stack_Op => Local_Operand,
-       Index    => Operand_Index (Index),
-       Content  => Content,
+   is (Class     => Stack_Operand,
+       Stack_Op  => Local_Operand,
+       Index     => Operand_Index (Index),
+       Content   => Content,
+       Reference => Reference,
        others   => <>);
 
    function Result_Operand
@@ -387,6 +436,7 @@ private
    type Routine_Record is
       record
          Name             : Tagatha.Names.Tagatha_Name;
+         Options          : Routine_Options;
          Stack_Code       : Instruction_Vectors.Vector;
          Transfer_Code    : Instruction_Vectors.Vector;
          Temporaries      : Temporary_Vectors.Vector;
