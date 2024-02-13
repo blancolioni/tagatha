@@ -89,10 +89,11 @@ package Tagatha.Arch is
       return Operand_Interface'Class
       is abstract;
 
-   function External_Operand
+   function Name_Operand
      (This    : Instance;
       Name    : String;
-      Address : Boolean)
+      Address : Boolean;
+      Imported : Boolean)
       return Operand_Interface'Class
       is abstract;
 
@@ -134,7 +135,8 @@ package Tagatha.Arch is
       Name      : String;
       Arguments : Argument_Count;
       Results   : Result_Count;
-      Locals    : Local_Count)
+      Locals    : Local_Count;
+      Linkage   : Boolean)
    is abstract;
 
    procedure End_Routine
@@ -142,9 +144,10 @@ package Tagatha.Arch is
    is abstract;
 
    procedure Begin_Data
-     (This : in out Instance;
-      Name : String;
-      Bits : Natural);
+     (This       : in out Instance;
+      Name       : String;
+      Bits       : Natural;
+      Read_Write : Boolean);
 
    procedure Datum
      (This  : in out Instance;
@@ -172,6 +175,8 @@ package Tagatha.Arch is
      (This : Instance'Class;
       Path : String);
 
+   function Get (Name : String) return Instance'Class;
+
 private
 
    package Line_Lists is
@@ -190,6 +195,7 @@ private
          Lines            : Line_Lists.List;
          Data_Bits        : Natural := 0;
          Data_Buffer      : Data_Buffer_Vectors.Vector;
+         RW_Data          : Boolean := False;
          Options          : Generate_Option_Array := [others => False];
       end record;
 

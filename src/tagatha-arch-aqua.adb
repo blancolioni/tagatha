@@ -81,8 +81,9 @@ package body Tagatha.Arch.Aqua is
 
    type External_Operand_Instance is new Aqua_Operand_Instance with
       record
-         Name    : Tagatha.Names.Tagatha_Name;
-         Address : Boolean;
+         Name     : Tagatha.Names.Tagatha_Name;
+         Imported : Boolean;
+         Address  : Boolean;
       end record;
 
    overriding function Image (This : External_Operand_Instance) return String
@@ -111,7 +112,7 @@ package body Tagatha.Arch.Aqua is
    overriding function Argument_Operand
      (This    : Instance;
       Content : Operand_Content;
-      Index : Argument_Index)
+      Index   : Argument_Index)
       return Operand_Interface'Class
    is (Argument_Operand_Instance'
          (Content => Content,
@@ -121,7 +122,7 @@ package body Tagatha.Arch.Aqua is
    overriding function Local_Operand
      (This    : Instance;
       Content : Operand_Content;
-      Index : Local_Index)
+      Index   : Local_Index)
       return Operand_Interface'Class
    is (Local_Operand_Instance'
          (Content => Content,
@@ -131,7 +132,7 @@ package body Tagatha.Arch.Aqua is
    overriding function Result_Operand
      (This    : Instance;
       Content : Operand_Content;
-      Index : Result_Index)
+      Index   : Result_Index)
       return Operand_Interface'Class
    is (Result_Operand_Instance'
          (Content => Content,
@@ -141,7 +142,7 @@ package body Tagatha.Arch.Aqua is
    overriding function Return_Operand
      (This    : Instance;
       Content : Operand_Content;
-      Index : Return_Index)
+      Index   : Return_Index)
       return Operand_Interface'Class
    is (Return_Operand_Instance'
          (Content => Content,
@@ -154,19 +155,39 @@ package body Tagatha.Arch.Aqua is
       Value    : Word_64)
       return Operand_Interface'Class
    is (Constant_Operand_Instance'
-         (Content => Content,
+         (Content  => Content,
           R        => 0,
           Value    => Value));
 
-   overriding function External_Operand
+   overriding function Name_Operand
      (This    : Instance;
       Name    : String;
-      Address : Boolean)
+      Address  : Boolean;
+      Imported : Boolean)
       return Operand_Interface'Class
    is (External_Operand_Instance'
-         (Content => General_Content,
-          R       => 0,
-          Name    => Tagatha.Names.To_Name (Name), Address => Address));
+         (Content  => General_Content,
+          R        => 0,
+          Name     => Tagatha.Names.To_Name (Name),
+          Imported => Imported,
+          Address  => Address));
+
+   ----------------
+   -- Begin_Data --
+   ----------------
+
+   overriding procedure Begin_Data
+     (This       : in out Instance;
+      Name       : String;
+      Bits       : Natural;
+      Read_Write : Boolean)
+   is
+   begin
+      if Read_Write then
+         This.Put_Instruction ("data");
+      end if;
+      Parent (This).Begin_Data (Name, Bits, Read_Write);
+   end Begin_Data;
 
    -------------------
    -- Begin_Routine --
@@ -177,7 +198,8 @@ package body Tagatha.Arch.Aqua is
       Name      : String;
       Arguments : Argument_Count;
       Results   : Result_Count;
-      Locals    : Local_Count)
+      Locals    : Local_Count;
+      Linkage   : Boolean)
    is
    begin
       This.Put_Line (Name & ":");
@@ -190,7 +212,10 @@ package body Tagatha.Arch.Aqua is
       This.First_Temp := This.Local_Bound;
       This.Temp_Bound := This.First_Temp;
       This.Saved_J := This.Claim;
-      This.Put_Instruction ("get", Register_Image (This.Saved_J), "rJ");
+      This.Linkage := Linkage;
+      if Linkage then
+         This.Put_Instruction ("get", Register_Image (This.Saved_J), "rJ");
+      end if;
    end Begin_Routine;
 
    ------------
@@ -204,8 +229,8 @@ package body Tagatha.Arch.Aqua is
       Destination : Positive;
       Forward     : Boolean)
    is
-      Op : Aqua_Operand_Instance'Class renames
-             Aqua_Operand_Instance'Class (Operand);
+      Op          : Aqua_Operand_Instance'Class renames
+                      Aqua_Operand_Instance'Class (Operand);
       Is_Register : constant Boolean := Op.Is_Register_Operand;
       R           : constant Register_Index :=
                       (if Condition = Always
@@ -252,7 +277,7 @@ package body Tagatha.Arch.Aqua is
       end loop;
 
       This.Call_Return :=
-          Register_Index'Max (This.Temp_Bound, 1);
+        Register_Index'Max (This.Temp_Bound, 1);
 
       if Name in External_Operand_Instance'Class then
          This.Put_Instruction
@@ -284,6 +309,20 @@ package body Tagatha.Arch.Aqua is
         "Claim: no available temporaries";
    end Claim;
 
+   --------------
+   -- End_Data --
+   --------------
+
+   overriding procedure End_Data
+     (This : in out Instance)
+   is
+   begin
+      Parent (This).End_Data;
+      if This.RW_Data then
+         This.Put_Instruction ("code");
+      end if;
+   end End_Data;
+
    -----------------
    -- End_Routine --
    -----------------
@@ -292,19 +331,39 @@ package body Tagatha.Arch.Aqua is
      (This : in out Instance)
    is
    begin
-      This.Put_Instruction ("put", "rJ", Register_Image (This.Saved_J));
-      if This.First_Result > 0 then
-         for R in This.First_Result .. This.Result_Bound - 1 loop
-            This.Put_Instruction
-              ("set", Register_Image (R - This.First_Result),
-               Register_Image (R));
-         end loop;
+      if This.Linkage then
+         This.Put_Instruction ("put", "rJ", Register_Image (This.Saved_J));
+         if This.First_Result > 0 then
+            for R in This.First_Result .. This.Result_Bound - 1 loop
+               This.Put_Instruction
+                 ("set", Register_Image (R - This.First_Result),
+                  Register_Image (R));
+            end loop;
+         end if;
+         This.Release (This.Saved_J);
+         This.Put_Instruction
+           ("pop",
+            Register_Index'Image (This.Result_Bound), "0");
+         This.Temps := [others => <>];
       end if;
-      This.Release (This.Saved_J);
-      This.Put_Instruction
-        ("pop",
-         Register_Index'Image (This.Result_Bound), "0");
-      This.Temps := [others => <>];
+
+      while This.Last_Ind_Written < This.Indirect_Vector.Last_Index loop
+         declare
+            Index_Image : String := This.Last_Ind_Written'Image;
+         begin
+            Index_Image (Index_Image'First) := '_';
+            This.Last_Ind_Written := @ + 1;
+            declare
+               Indirect_Label : constant String :=
+                                  "_ext_indirect" & Index_Image;
+            begin
+               This.Begin_Data (Indirect_Label, 32, False);
+               This.Label_Datum (This.Indirect_Vector (This.Last_Ind_Written));
+               This.End_Data;
+            end;
+         end;
+      end loop;
+
    end End_Routine;
 
    -----------
@@ -319,6 +378,32 @@ package body Tagatha.Arch.Aqua is
    begin
       return Img (2 .. Img'Last);
    end Image;
+
+   --------------------
+   -- Indirect_Label --
+   --------------------
+
+   function Indirect_Label
+     (This           : in out Instance;
+      External_Label : String)
+      return String
+   is
+      Index : Natural :=
+                This.Indirect_Vector.Find_Index (External_Label);
+   begin
+      if Index = Indirect_Label_Vectors.No_Index then
+         This.Indirect_Vector.Append (External_Label);
+         Index := This.Indirect_Vector.Last_Index;
+      end if;
+
+      declare
+         Index_Image : String := Index'Image;
+      begin
+         Index_Image (Index_Image'First) := '_';
+         return "_ext_indirect" & Index_Image;
+      end;
+
+   end Indirect_Label;
 
    ----------
    -- Jump --
@@ -368,10 +453,13 @@ package body Tagatha.Arch.Aqua is
       This        : in out Instance'Class;
       Destination : Register_Index)
    is
+      Src_Image : constant String :=
+                    Aqua_Operand_Instance'Class (Operand).Image;
+      pragma Assert (Src_Image /= "",
+                     "no image for " & Operand'Image);
    begin
       This.Put_Instruction
-        ("set", Register_Image (Destination),
-         Aqua_Operand_Instance'Class (Operand).Image);
+        ("set", Register_Image (Destination), Src_Image);
    end Move_To_Register;
 
    ----------------------
@@ -408,16 +496,34 @@ package body Tagatha.Arch.Aqua is
       This        : in out Instance'Class;
       Destination : Register_Index)
    is
+      Label          : constant String :=
+                         Tagatha.Names.To_String (Operand.Name);
    begin
-      if Operand.Address then
-         This.Put_Instruction ("geta", Register_Image (Destination),
-                               Tagatha.Names.To_String (Operand.Name));
+      if Operand.Imported then
+         declare
+            R              : constant Register_Index := This.Claim;
+            Indirect_Label : constant String := This.Indirect_Label (Label);
+         begin
+            This.Put_Instruction
+              ("geta", Register_Image (R), Indirect_Label);
+            if not Operand.Address then
+               This.Put_Instruction
+                 ("ld", Register_Image (R), Register_Image (R), "0");
+            end if;
+
+            This.Put_Instruction ("ld", Register_Image (Destination),
+                                  Register_Image (R), "0");
+            This.Release (R);
+         end;
+      elsif Operand.Address then
+         This.Put_Instruction
+           ("geta", Register_Image (Destination), Label);
       else
          declare
-            R : constant Register_Index := This.Claim;
+            R              : constant Register_Index := This.Claim;
          begin
-            This.Put_Instruction ("geta", Register_Image (R),
-                                  Tagatha.Names.To_String (Operand.Name));
+            This.Put_Instruction
+              ("geta", Register_Image (R), Label);
             This.Put_Instruction ("ld", Register_Image (Destination),
                                   Register_Image (R), "0");
             This.Release (R);
@@ -446,6 +552,7 @@ package body Tagatha.Arch.Aqua is
       S     : Unbounded_String;
       First : Boolean := True;
    begin
+
       if This.Data_Bits <= 8 then
          S := To_Unbounded_String ("    byte ");
       else
@@ -461,6 +568,7 @@ package body Tagatha.Arch.Aqua is
       end loop;
       This.Put_Line (To_String (S));
       This.Data_Buffer.Clear;
+
    end Put_Data_Buffer;
 
    -------------
@@ -499,10 +607,23 @@ package body Tagatha.Arch.Aqua is
       This    : in out Instance'Class;
       Source  : Register_Index)
    is
-      R : constant Register_Index := This.Claim;
+      R              : constant Register_Index := This.Claim;
+      Label          : constant String :=
+                         Tagatha.Names.To_String (Operand.Name);
    begin
-      This.Put_Instruction
-        ("geta", Register_Image (R), Operand.Image);
+      if Operand.Imported then
+         declare
+            Indirect_Label : constant String := This.Indirect_Label (Label);
+         begin
+            This.Put_Instruction
+              ("geta", Register_Image (R), Indirect_Label);
+            This.Put_Instruction
+              ("ld", Register_Image (R), Register_Image (R), "0");
+         end;
+      else
+         This.Put_Instruction
+           ("geta", Register_Image (R), Label);
+      end if;
       This.Put_Instruction
         ("st", Register_Image (Source), Register_Image (R), "0");
       This.Release (R);
@@ -555,22 +676,28 @@ package body Tagatha.Arch.Aqua is
             end if;
          end;
          if R = Last_Register then
-            for T in This.First_Temp .. This.Temp_Bound - 1 loop
-               Ada.Text_IO.Put_Line
-                 (Register_Image (T) & " -> "
-                  & (if This.Temps (T).Claimed
-                    then "claimed"
-                    else "t" & Integer'Image
-                      (-Integer (This.Temps (T).Assignment))));
-            end loop;
-            if First_Write then
-               raise Constraint_Error with
-                 "no spare registers for temporary" & Index'Image;
-            else
-               raise Constraint_Error with
-                 "attempt to read temporary" & Index'Image
-                 & " which has not been written";
-            end if;
+            declare
+               Message : constant String :=
+                           (if First_Write
+                            then "no spare registers for temporary"
+                            & Index'Image
+                            else "attempt to read temporary" & Index'Image
+                            & " which has not been written");
+            begin
+
+               Ada.Text_IO.Put_Line (Message);
+
+               for T in This.First_Temp .. This.Temp_Bound - 1 loop
+                  Ada.Text_IO.Put_Line
+                    (Register_Image (T) & " -> "
+                     & (if This.Temps (T).Claimed
+                       then "claimed"
+                       else "t" & Integer'Image
+                         (-Integer (This.Temps (T).Assignment))));
+               end loop;
+
+               raise Constraint_Error with Message;
+            end;
          end if;
          R := R + 1;
       end loop;
@@ -610,12 +737,12 @@ package body Tagatha.Arch.Aqua is
                       when Op_Xor         => "xor",
                       when Op_Dereference => "",
                       when Op_Store       => "",
-                      when Op_EQ          => "sub",
-                      when Op_NE          => "sub",
-                      when Op_LT          => "sub",
-                      when Op_LE          => "sub",
-                      when Op_GT          => "sub",
-                      when Op_GE          => "sub");
+                      when Op_EQ          => "zsz",
+                      when Op_NE          => "zsnz",
+                      when Op_LT          => "zsn",
+                      when Op_LE          => "zsnp",
+                      when Op_GT          => "zsp",
+                      when Op_GE          => "zsnn");
 
       Dst_Op      : Aqua_Operand_Instance'Class renames
                       Aqua_Operand_Instance'Class (Dst);
@@ -691,23 +818,45 @@ package body Tagatha.Arch.Aqua is
             This.Release (R);
          end;
       else
-         if not Src_2_Op.Is_Register_Operand
-           and then (Src_2_Op not in Constant_Operand_Instance'Class
-                     or else Constant_Operand_Instance'Class (Src_2_Op)
-                     .Value >= 256)
-         then
-            declare
-               R : constant Register_Index := This.Claim;
+         declare
+            procedure Put (Dst, Src_1, Src_2 : String);
+
+            ---------
+            -- Put --
+            ---------
+
+            procedure Put (Dst, Src_1, Src_2 : String) is
             begin
-               Src_2_Op.Move_To_Register (This, R);
-               This.Put_Instruction (Op_Name, Dst_Image, Src_1_Image,
-                                     Register_Image (R));
-               This.Release (R);
-            end;
-         else
-            This.Put_Instruction
-              (Op_Name, Dst_Image, Src_1_Image, Src_2_Image);
-         end if;
+               if Op in Compare_Operator then
+                  This.Put_Instruction ("sub", Dst, Src_1, Src_2);
+                  This.Put_Instruction (Op_Name, Dst, Dst, "1");
+               else
+                  This.Put_Instruction (Op_Name, Dst, Src_1, Src_2);
+               end if;
+            end Put;
+
+         begin
+
+            if not Src_2_Op.Is_Register_Operand
+              and then (Src_2_Op not in Constant_Operand_Instance'Class
+                        or else Constant_Operand_Instance'Class (Src_2_Op)
+                        .Value >= 256)
+            then
+               declare
+                  R : constant Register_Index := This.Claim;
+               begin
+                  Src_2_Op.Move_To_Register (This, R);
+                  Put (Dst_Image, Src_1_Image, Register_Image (R));
+                  --  This.Put_Instruction (Op_Name, Dst_Image, Src_1_Image,
+                  --                        Register_Image (R));
+                  This.Release (R);
+               end;
+            else
+               Put (Dst_Image, Src_1_Image, Src_2_Image);
+               --  This.Put_Instruction
+               --    (Op_Name, Dst_Image, Src_1_Image, Src_2_Image);
+            end if;
+         end;
       end if;
    end Transfer;
 

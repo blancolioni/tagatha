@@ -1,5 +1,7 @@
 with Ada.Text_IO;
 
+with Tagatha.Arch.Loader;
+
 package body Tagatha.Arch is
 
    ----------------
@@ -7,9 +9,10 @@ package body Tagatha.Arch is
    ----------------
 
    procedure Begin_Data
-     (This : in out Instance;
-      Name : String;
-      Bits : Natural)
+     (This       : in out Instance;
+      Name       : String;
+      Bits       : Natural;
+      Read_Write : Boolean)
    is
    begin
       if Name /= "" then
@@ -17,6 +20,7 @@ package body Tagatha.Arch is
       end if;
       This.Data_Bits := Bits;
       This.Data_Buffer.Clear;
+      This.RW_Data := Read_Write;
    end Begin_Data;
 
    -----------
@@ -43,6 +47,15 @@ package body Tagatha.Arch is
          Dispatch (This).Put_Data_Buffer;
       end if;
    end End_Data;
+
+   ---------
+   -- Get --
+   ---------
+
+   function Get (Name : String) return Instance'Class is
+   begin
+      return Loader.Get (Name);
+   end Get;
 
    -----------------
    -- Label_Datum --

@@ -1,3 +1,5 @@
+private with Ada.Containers.Indefinite_Vectors;
+
 package Tagatha.Arch.Aqua is
 
    subtype Parent is Arch.Instance;
@@ -30,20 +32,27 @@ private
       return Boolean
    is (True);
 
+   package Indirect_Label_Vectors is
+     new Ada.Containers.Indefinite_Vectors (Positive, String);
+
    type Instance is new Parent with
       record
-         First_Arg    : Register_Index;
-         Arg_Bound    : Register_Index;
-         First_Result : Register_Index;
-         Result_Bound : Register_Index;
-         First_Local  : Register_Index;
-         Local_Bound  : Register_Index;
-         First_Temp   : Register_Index;
-         Temp_Bound   : Register_Index;
-         Call_Return  : Register_Index;
-         Temps        : Register_State_Array;
-         Data_Last    : Natural := 0;
-         Saved_J      : Register_Index;
+         First_Arg        : Register_Index;
+         Arg_Bound        : Register_Index;
+         First_Result     : Register_Index;
+         Result_Bound     : Register_Index;
+         First_Local      : Register_Index;
+         Local_Bound      : Register_Index;
+         First_Temp       : Register_Index;
+         Temp_Bound       : Register_Index;
+         Call_Return      : Register_Index;
+         Temps            : Register_State_Array;
+         Data_Last        : Natural := 0;
+         Saved_J          : Register_Index;
+         Linkage          : Boolean;
+         Next_Indirect    : Natural := 0;
+         Last_Ind_Written : Natural := 0;
+         Indirect_Vector  : Indirect_Label_Vectors.Vector;
       end record;
 
    procedure Move_To_Register
@@ -98,10 +107,11 @@ private
       Value    : Word_64)
       return Operand_Interface'Class;
 
-   overriding function External_Operand
+   overriding function Name_Operand
      (This    : Instance;
       Name    : String;
-      Address : Boolean)
+      Address  : Boolean;
+      Imported : Boolean)
       return Operand_Interface'Class;
 
    overriding function Temporary_Operand
@@ -134,7 +144,8 @@ private
       Name      : String;
       Arguments : Argument_Count;
       Results   : Result_Count;
-      Locals    : Local_Count);
+      Locals    : Local_Count;
+      Linkage   : Boolean);
 
    overriding procedure End_Routine
      (This : in out Instance);
@@ -145,6 +156,15 @@ private
       Src_1, Src_2 : Operand_Interface'Class;
       Op           : Operator);
 
+   overriding procedure Begin_Data
+     (This       : in out Instance;
+      Name       : String;
+      Bits       : Natural;
+      Read_Write : Boolean);
+
+   overriding procedure End_Data
+     (This : in out Instance);
+
    overriding procedure Put_Data_Buffer (This : in out Instance);
 
    function Claim (This : in out Instance'Class) return Register_Index;
@@ -153,5 +173,10 @@ private
       R    : Register_Index)
      with Pre => R in This.First_Temp .. This.Temp_Bound - 1
        and then This.Temps (R).Claimed;
+
+   function Indirect_Label
+     (This           : in out Instance;
+      External_Label : String)
+      return String;
 
 end Tagatha.Arch.Aqua;

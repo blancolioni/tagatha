@@ -127,10 +127,11 @@ package body Tagatha.Arch.Pdp11 is
    is (Return_Operand_Instance'(Content => Content,
                                 Index   => Index));
 
-   overriding function External_Operand
+   overriding function Name_Operand
      (This    : Instance;
       Name    : String;
-      Address : Boolean)
+      Address  : Boolean;
+      Imported : Boolean)
       return Operand_Interface'Class
    is (External_Operand_Instance'(Content => General_Content,
                                   Name    => Tagatha.Names.To_Name (Name),
@@ -147,7 +148,8 @@ package body Tagatha.Arch.Pdp11 is
       Name      : String;
       Arguments : Argument_Count;
       Results   : Result_Count;
-      Locals    : Local_Count)
+      Locals    : Local_Count;
+      Linkage   : Boolean)
    is
    begin
       This.Put_Line (To_Macro11_Label (Name) & ":");

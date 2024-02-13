@@ -59,10 +59,11 @@ private
       Value    : Word_64)
       return Operand_Interface'Class;
 
-   overriding function External_Operand
+   overriding function Name_Operand
      (This    : Instance;
       Name    : String;
-      Address : Boolean)
+      Address  : Boolean;
+      Imported : Boolean)
       return Operand_Interface'Class;
 
    overriding function Temporary_Operand
@@ -99,7 +100,8 @@ private
       Name      : String;
       Arguments : Argument_Count;
       Results   : Result_Count;
-      Locals    : Local_Count);
+      Locals    : Local_Count;
+      Linkage   : Boolean);
 
    overriding procedure End_Routine
      (This : in out Instance);
