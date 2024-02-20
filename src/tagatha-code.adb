@@ -57,7 +57,7 @@ package body Tagatha.Code is
       Routine.Last_Loc_Current := Routine.Last_Loc_Current + 1;
       Routine.Last_Loc := Local_Count'Max (Routine.Last_Loc,
                                            Routine.Last_Loc_Current);
-      return Routine.Last_Loc;
+      return Routine.Last_Loc_Current;
    end Add_Local;
 
    ------------
@@ -1857,8 +1857,7 @@ package body Tagatha.Code is
                         if Loc /= Routine.Last_Loc_Current then
                            Routine.Last_Loc_Current :=
                              Local_Count'Max
-                               (Routine.Last_Loc_Current,
-                                Routine.Last_Loc);
+                               (Routine.Last_Loc_Current, Loc);
                         end if;
                      end;
                   when Result_Operand =>
