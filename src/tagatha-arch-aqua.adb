@@ -343,7 +343,9 @@ package body Tagatha.Arch.Aqua is
          This.Release (This.Saved_J);
          This.Put_Instruction
            ("pop",
-            Register_Index'Image (This.Result_Bound), "0");
+            Register_Index'Image
+              (Register_Index'Max (This.Result_Bound - This.First_Result, 1)),
+            "0");
          This.Temps := [others => <>];
       end if;
 
@@ -771,7 +773,7 @@ package body Tagatha.Arch.Aqua is
       elsif Op = Op_Test then
          null;
       elsif Op = Op_Not then
-         This.Put_Instruction ("nand", Dst_Image, Src_2_Image, Src_2_Image);
+         This.Put_Instruction ("zsz", Dst_Image, Src_2_Image, "1");
       elsif Op = Op_Negate then
          This.Put_Instruction ("neg", Dst_Image, "0", Src_2_Image);
       elsif Op in Unary_Operator then
