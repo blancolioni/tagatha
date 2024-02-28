@@ -211,9 +211,9 @@ package body Tagatha.Arch.Aqua is
       This.Local_Bound := This.First_Local + Register_Index (Locals);
       This.First_Temp := This.Local_Bound;
       This.Temp_Bound := This.First_Temp;
-      This.Saved_J := This.Claim;
       This.Linkage := Linkage;
       if Linkage then
+         This.Saved_J := This.Claim;
          This.Put_Instruction ("get", Register_Image (This.Saved_J), "rJ");
       end if;
    end Begin_Routine;
