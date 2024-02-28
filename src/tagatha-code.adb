@@ -876,10 +876,6 @@ package body Tagatha.Code is
                      declare
                         New_Instr : Instruction_Record := Next;
                      begin
-                        Ada.Text_IO.Put_Line
-                          ("improve: instr " & Instr'Image);
-                        Ada.Text_IO.Put_Line
-                          ("improve: next  " & Next'Image);
                         New_Instr.Condition :=
                           (if Next.Condition = Z then NZ else Z);
                         New_Instr.Branch_Op := Instr.Src_2;
@@ -888,8 +884,6 @@ package body Tagatha.Code is
                         end loop;
                         Code.Delete (Index);
                         Code (Index) := New_Instr;
-                        Ada.Text_IO.Put_Line
-                          ("improve: new   " & New_Instr'Image);
                      end;
                      Changed := True;
                   else
@@ -1132,15 +1126,9 @@ package body Tagatha.Code is
                   begin
                      if Is_Dst then
                         if Rec.First_Write = 0 then
-                           --  Ada.Text_IO.Put_Line
-                           --    ("t" & Integer'Image (-Integer (Operand.Temp))
-                           --     & ": first write" & Index'Image);
                            Rec.First_Write := Index;
                         end if;
                      else
-                        --  Ada.Text_IO.Put_Line
-                        --    ("t" & Integer'Image (-Integer (Operand.Temp))
-                        --     & ": last read" & Index'Image);
                         Rec.Last_Read := Index;
                      end if;
                   end;
