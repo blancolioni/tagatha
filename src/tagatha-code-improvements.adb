@@ -18,7 +18,7 @@ package body Tagatha.Code.Improvements is
    overriding function Fix
      (This          : Redundant_Branch_To_Next;
       Current, Next : Instruction_Record)
-      return Instruction_Record;
+      return Code_Change_Lists.List;
 
    type Not_Followed_By_Conditional_Branch is
      new Improver_Interface with null record;
@@ -37,7 +37,26 @@ package body Tagatha.Code.Improvements is
    overriding function Fix
      (This          : Not_Followed_By_Conditional_Branch;
       Current, Next : Instruction_Record)
-      return Instruction_Record;
+      return Code_Change_Lists.List;
+
+   type Operation_And_Self_Assignment is
+     new Improver_Interface with null record;
+
+   overriding function Name
+     (This : Operation_And_Self_Assignment)
+      return String
+   is ("replace transfer to temporary then to non-temporary "
+       & "with a direct transfer to temporary");
+
+   overriding function Test
+     (This          : Operation_And_Self_Assignment;
+      Current, Next : Instruction_Record)
+      return Boolean;
+
+   overriding function Fix
+     (This          : Operation_And_Self_Assignment;
+      Current, Next : Instruction_Record)
+      return Code_Change_Lists.List;
 
    package Improvement_Lists is
      new Ada.Containers.Indefinite_Doubly_Linked_Lists
@@ -45,7 +64,8 @@ package body Tagatha.Code.Improvements is
 
    Improvement_List : constant Improvement_Lists.List :=
                         [Redundant_Branch_To_Next'(null record),
-                         Not_Followed_By_Conditional_Branch'(null record)
+                         Not_Followed_By_Conditional_Branch'(null record),
+                         Operation_And_Self_Assignment'(null record)
                         ];
 
    ---------
@@ -55,10 +75,10 @@ package body Tagatha.Code.Improvements is
    overriding function Fix
      (This          : Redundant_Branch_To_Next;
       Current, Next : Instruction_Record)
-      return Instruction_Record
+      return Code_Change_Lists.List
    is
    begin
-      return Next;
+      return [Replace (0, 1, Next)];
    end Fix;
 
    ---------
@@ -68,14 +88,30 @@ package body Tagatha.Code.Improvements is
    overriding function Fix
      (This          : Not_Followed_By_Conditional_Branch;
       Current, Next : Instruction_Record)
-      return Instruction_Record
+      return Code_Change_Lists.List
    is
+      Instr : Instruction_Record := Next;
    begin
-      return Instr : Instruction_Record := Next do
-         Instr.Condition :=
-           (if Next.Condition = Z then NZ else Z);
-         Instr.Branch_Op := Current.Src_2;
-      end return;
+      Instr.Condition :=
+        (if Next.Condition = Z then NZ else Z);
+      Instr.Branch_Op := Current.Src_2;
+      return [Replace (0, 1, Instr)];
+   end Fix;
+
+   ---------
+   -- Fix --
+   ---------
+
+   overriding function Fix
+     (This          : Operation_And_Self_Assignment;
+      Current, Next : Instruction_Record)
+      return Code_Change_Lists.List
+   is
+      New_Instr : Instruction_Record := Current;
+   begin
+      New_Instr.Dst := Next.Dst;
+      return [Replace (0, 1, New_Instr),
+              Remap (Current.Dst.Temp, New_Instr.Dst)];
    end Fix;
 
    --------------------------
@@ -128,6 +164,23 @@ package body Tagatha.Code.Improvements is
         and then Current.Class = Transfer
         and then Current.T_Op = Op_Not
         and then Current.Dst = Next.Branch_Op;
+   end Test;
+
+   ----------
+   -- Test --
+   ----------
+
+   overriding function Test
+     (This          : Operation_And_Self_Assignment;
+      Current, Next : Instruction_Record)
+      return Boolean
+   is
+   begin
+      return Current.Class = Transfer
+        and then Current.Dst.Class = Temporary_Operand
+        and then Next.Class = Transfer
+        and then Next.T_Op = Op_Identity
+        and then Current.Dst = Next.Src_2;
    end Test;
 
 end Tagatha.Code.Improvements;

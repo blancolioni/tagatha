@@ -4,8 +4,9 @@ with Tagatha.Code.Improvements;
 
 package body Tagatha.Code is
 
-   Trace_P_Code    : constant Boolean := False;
-   Trace_Transfers : constant Boolean := False;
+   Trace_P_Code       : constant Boolean := False;
+   Trace_Transfers    : constant Boolean := False;
+   Trace_Improvements : constant Boolean := False;
 
    function Get_Content
      (A, B, C : Operand_Record := No_Operand)
@@ -872,21 +873,66 @@ package body Tagatha.Code is
 
                   begin
                      if Improvement.Test (Instr, Next) then
+
+                        if Trace_Improvements then
+                           Ada.Text_IO.Put_Line
+                             ("applying: " & Improvement.Name);
+                           Ada.Text_IO.Put_Line
+                             ("  current: " & Instr'Image);
+                           Ada.Text_IO.Put_Line
+                             ("  next:    " & Next'Image);
+                        end if;
+
                         declare
-                           New_Instr : Instruction_Record :=
-                                         Improvement.Fix (Instr, Next);
+                           Changes : constant Code_Change_Lists.List :=
+                                       Improvement.Fix (Instr, Next);
                         begin
-                           New_Instr.Labels.Clear;
-                           for Label of Instr.Labels loop
-                              New_Instr.Labels.Append (Label);
+                           for Change of Changes loop
+                              case Change.Operation is
+                                 when Replace_Instruction =>
+                                    declare
+                                       New_Instr : Instruction_Record :=
+                                                     Change.New_Instruction
+                                                       .Element;
+                                    begin
+                                       New_Instr.Labels.Clear;
+                                       for I in
+                                         Change.First .. Change.Last
+                                       loop
+                                          for Label of
+                                            Code (Index + I).Labels
+                                          loop
+                                             New_Instr.Labels.Append (Label);
+                                          end loop;
+                                       end loop;
+                                       Code.Replace_Element (Index, New_Instr);
+                                       if Change.Last > Change.First then
+                                          Code.Delete
+                                            (Index + 1,
+                                             Ada.Containers.Count_Type
+                                               (Change.Last - Change.First));
+                                       end if;
+                                    end;
+
+                                 when Remap_Temporary =>
+                                    if Trace_Improvements then
+                                       Ada.Text_IO.Put_Line
+                                         ("remap" & Change.Temp'Image
+                                          & " to " & Change.Map_To'Image);
+                                    end if;
+                                    while Routine.Temporaries.Last_Index
+                                      < Change.Temp
+                                    loop
+                                       Routine.Temporaries.Append
+                                         (Temporary_Record'(others => <>));
+                                    end loop;
+                                    Routine.Temporaries (Change.Temp)
+                                      .Remap := Change.Map_To;
+                              end case;
                            end loop;
-                           for Label of Next.Labels loop
-                              New_Instr.Labels.Append (Label);
-                           end loop;
-                           Code.Delete (Index);
-                           Code.Replace_Element (Index, New_Instr);
                            Stop := True;
                            Applied := True;
+
                         end;
                      else
                         Stop := False;
@@ -1021,6 +1067,8 @@ package body Tagatha.Code is
                                      Is_Dst and then Rec.First_Write = Index;
                      Last_Read   : constant Boolean :=
                                      not Is_Dst and then Rec.Last_Read = Index;
+                     Remap       : constant Operand_Record :=
+                                     Rec.Remap;
                   begin
                      --  Ada.Text_IO.Put_Line
                      --    ("get-operand: t"
@@ -1028,8 +1076,12 @@ package body Tagatha.Code is
                      --     & "; index" & Index'Image
                      --     & "; first-write" & Rec.First_Write'Image
                      --       & "; last-read" & Rec.Last_Read'Image);
-                     return Target.Temporary_Operand
-                       (From.Temp, From.Content, First_Write, Last_Read);
+                     if Remap.Class = No_Operand then
+                        return Target.Temporary_Operand
+                          (From.Temp, From.Content, First_Write, Last_Read);
+                     else
+                        return Get_Operand (Remap, Is_Dst);
+                     end if;
                   end;
 
             end case;

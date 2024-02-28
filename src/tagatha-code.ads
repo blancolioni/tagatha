@@ -1,4 +1,6 @@
 private with Ada.Containers.Doubly_Linked_Lists;
+private with Ada.Containers.Indefinite_Doubly_Linked_Lists;
+private with Ada.Containers.Indefinite_Holders;
 private with Ada.Containers.Indefinite_Vectors;
 private with Ada.Containers.Vectors;
 private with Ada.Strings.Text_Buffers;
@@ -428,6 +430,7 @@ private
          First_Write : Natural := 0;
          Last_Read   : Natural := 0;
          Content     : Operand_Content := General_Content;
+         Remap       : Operand_Record;
       end record;
 
    package Temporary_Vectors is
@@ -536,5 +539,38 @@ private
      (Data_List : in out Labeled_Data_Lists.List;
       Bits      : Bit_Count;
       List      : Data_Lists.List);
+
+   type Code_Change_Operation is
+     (Replace_Instruction,
+      Remap_Temporary);
+
+   package Instruction_Holders is
+     new Ada.Containers.Indefinite_Holders (Instruction_Record);
+
+   type Code_Change (Operation : Code_Change_Operation) is
+      record
+         case Operation is
+            when Replace_Instruction =>
+               First, Last     : Natural;
+               New_Instruction : Instruction_Holders.Holder;
+            when Remap_Temporary =>
+               Temp            : Temporary_Index;
+               Map_To          : Operand_Record;
+         end case;
+      end record;
+
+   function Replace (First, Last : Natural;
+                     New_Instr : Instruction_Record)
+                     return Code_Change
+   is (Replace_Instruction, First, Last,
+       Instruction_Holders.To_Holder (New_Instr));
+
+   function Remap (Temporary : Temporary_Index;
+                   Map_To    : Operand_Record)
+                   return Code_Change
+   is (Remap_Temporary, Temporary, Map_To);
+
+   package Code_Change_Lists is
+     new Ada.Containers.Indefinite_Doubly_Linked_Lists (Code_Change);
 
 end Tagatha.Code;
