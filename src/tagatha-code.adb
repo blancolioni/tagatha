@@ -1,5 +1,7 @@
 with Ada.Text_IO;
 
+with Tagatha.Code.Improvements;
+
 package body Tagatha.Code is
 
    Trace_P_Code    : constant Boolean := False;
@@ -848,43 +850,52 @@ package body Tagatha.Code is
             Changed := False;
             while Index < Code.Last_Index loop
                declare
-                  Instr : constant Instruction_Record :=
-                            Code (Index);
-                  Next  : constant Instruction_Record :=
-                            Code (Index + 1);
+
+                  Applied : Boolean := False;
+
+                  procedure Try
+                    (Improvement : Improvements.Improver_Interface'Class;
+                     Stop        : out Boolean);
+
+                  ---------
+                  -- Try --
+                  ---------
+
+                  procedure Try
+                    (Improvement : Improvements.Improver_Interface'Class;
+                     Stop        : out Boolean)
+                  is
+                     Instr : constant Instruction_Record :=
+                               Code (Index);
+                     Next  : constant Instruction_Record :=
+                               Code (Index + 1);
+
+                  begin
+                     if Improvement.Test (Instr, Next) then
+                        declare
+                           New_Instr : Instruction_Record :=
+                                         Improvement.Fix (Instr, Next);
+                        begin
+                           New_Instr.Labels.Clear;
+                           for Label of Instr.Labels loop
+                              New_Instr.Labels.Append (Label);
+                           end loop;
+                           for Label of Next.Labels loop
+                              New_Instr.Labels.Append (Label);
+                           end loop;
+                           Code.Delete (Index);
+                           Code.Replace_Element (Index, New_Instr);
+                           Stop := True;
+                           Applied := True;
+                        end;
+                     else
+                        Stop := False;
+                     end if;
+                  end Try;
+
                begin
-                  if Instr.Class = Branch
-                    and then Next.Labels.Contains (Instr.Branch_To)
-                    and then Instr.Forward
-                  then
-                     declare
-                        New_Instr : Instruction_Record := Next;
-                     begin
-                        for Label of Instr.Labels loop
-                           New_Instr.Labels.Append (Label);
-                        end loop;
-                        Code.Delete (Index);
-                        Code (Index) := New_Instr;
-                     end;
-                     Changed := True;
-                  elsif Next.Class = Branch
-                    and then Next.Condition /= Always
-                    and then Instr.Class = Transfer
-                    and then Instr.T_Op = Op_Not
-                    and then Instr.Dst = Next.Branch_Op
-                  then
-                     declare
-                        New_Instr : Instruction_Record := Next;
-                     begin
-                        New_Instr.Condition :=
-                          (if Next.Condition = Z then NZ else Z);
-                        New_Instr.Branch_Op := Instr.Src_2;
-                        for Label of Instr.Labels loop
-                           New_Instr.Labels.Append (Label);
-                        end loop;
-                        Code.Delete (Index);
-                        Code (Index) := New_Instr;
-                     end;
+                  Improvements.Iterate_Improvements (Try'Access);
+                  if Applied then
                      Changed := True;
                   else
                      Index := Index + 1;
