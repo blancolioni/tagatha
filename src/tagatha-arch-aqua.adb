@@ -350,11 +350,11 @@ package body Tagatha.Arch.Aqua is
       end if;
 
       while This.Last_Ind_Written < This.Indirect_Vector.Last_Index loop
+         This.Last_Ind_Written := @ + 1;
          declare
             Index_Image : String := This.Last_Ind_Written'Image;
          begin
             Index_Image (Index_Image'First) := '_';
-            This.Last_Ind_Written := @ + 1;
             declare
                Indirect_Label : constant String :=
                                   "_ext_indirect" & Index_Image;
@@ -397,6 +397,8 @@ package body Tagatha.Arch.Aqua is
          This.Indirect_Vector.Append (External_Label);
          Index := This.Indirect_Vector.Last_Index;
       end if;
+
+      pragma Assert (Index > 0);
 
       declare
          Index_Image : String := Index'Image;
