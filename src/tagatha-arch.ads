@@ -171,6 +171,12 @@ package Tagatha.Arch is
       Op           : Operator)
    is abstract;
 
+   procedure Note
+     (This : in out Instance;
+      Name : String;
+      Tag  : Word_32;
+      Text : String);
+
    procedure Save
      (This : Instance'Class;
       Path : String);

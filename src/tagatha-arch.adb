@@ -86,6 +86,24 @@ package body Tagatha.Arch is
       This.Put_Line (Img & ":");
    end Local_Label;
 
+   ----------
+   -- Note --
+   ----------
+
+   procedure Note
+     (This : in out Instance;
+      Name : String;
+      Tag  : Word_32;
+      Text : String)
+   is
+   begin
+      Dispatch (This).Put_Instruction
+        ("note",
+         Name,
+         Tag'Image,
+         '"' & Text & '"');
+   end Note;
+
    -----------------
    -- Put_Comment --
    -----------------

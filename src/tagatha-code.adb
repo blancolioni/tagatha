@@ -1282,6 +1282,13 @@ package body Tagatha.Code is
          Target.End_Data;
       end loop;
 
+      for Note of This.Notes loop
+         Target.Note
+           (Name => Tagatha.Names.To_String (Note.Name),
+            Tag  => Note.Tag,
+            Text => Tagatha.Names.To_String (Note.Description));
+      end loop;
+
    end Generate;
 
    ----------------
@@ -1316,8 +1323,17 @@ package body Tagatha.Code is
 
    procedure Note
      (This : in out Instance;
+      Name : String;
+      Tag  : Word_32;
       Text : String)
-   is null;
+   is
+      Rec : constant Note_Record := Note_Record'
+        (Name        => Tagatha.Names.To_Name (Name),
+         Tag         => Tag,
+         Description => Tagatha.Names.To_Name (Text));
+   begin
+      This.Notes.Append (Rec);
+   end Note;
 
    -------------
    -- Operate --

@@ -220,6 +220,8 @@ package Tagatha.Code is
 
    procedure Note
      (This : in out Instance;
+      Name : String;
+      Tag  : Word_32;
       Text : String);
 
    procedure Generate
@@ -496,11 +498,22 @@ private
    package Labeled_Data_Lists is
      new Ada.Containers.Doubly_Linked_Lists (Labeled_Data);
 
+   type Note_Record is
+      record
+         Name        : Tagatha.Names.Tagatha_Name;
+         Tag         : Word_32;
+         Description : Tagatha.Names.Tagatha_Name;
+      end record;
+
+   package Note_Lists is
+     new Ada.Containers.Doubly_Linked_Lists (Note_Record);
+
    type Instance is tagged
       record
          Routine_List   : Routine_Lists.List;
          RO_Data_List   : Labeled_Data_Lists.List;
          RW_Data_List   : Labeled_Data_Lists.List;
+         Notes          : Note_Lists.List;
          Active_Routine : Routine_Lists.Cursor;
          Label_Vector   : Label_Vectors.Vector;
          Last_Label     : Label := No_Label;
