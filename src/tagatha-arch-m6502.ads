@@ -118,6 +118,20 @@ private
    overriding procedure End_Routine
      (This : in out Instance);
 
+   overriding procedure Exit_Routine
+     (This        : in out Instance);
+
+   overriding procedure Fail_Routine
+     (This        : in out Instance);
+
+   overriding procedure Retry
+     (This        : in out Instance;
+      Destination : String);
+
+   overriding procedure Raise_Exception
+     (This    : in out Instance;
+      E       : Operand_Interface'Class);
+
    overriding procedure Transfer
      (This         : in out Instance;
       Dst          : Operand_Interface'Class;

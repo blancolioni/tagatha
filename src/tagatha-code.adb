@@ -344,6 +344,15 @@ package body Tagatha.Code is
                             Actuals => Actuals, Name => Name));
                end;
 
+            when Control =>
+               case Instruction.Control_Class is
+                  when Exit_Routine | Fail_Routine | Retry_Routine =>
+                     Append (Instruction);
+                  when Raise_Exception =>
+                     Append ((Instruction with delta
+                               Control_Op => Pop_Operand));
+               end case;
+
             when Operate =>
                declare
                   Offset : constant Operand_Record :=
@@ -781,7 +790,370 @@ package body Tagatha.Code is
       Start_Label   : String;
       End_Label     : String;
       Handler_Label : String)
-   is null;
+   is
+   begin
+      This.Handlers.Append
+        (Exception_Handler_Record'
+           (Base    => Tagatha.Names.To_Name (Start_Label),
+            Bound   => Tagatha.Names.To_Name (End_Label),
+            Handler => Tagatha.Names.To_Name (Handler_Label)));
+   end Exception_Handler;
+
+   ------------------
+   -- Exit_Routine --
+   ------------------
+
+   procedure Exit_Routine
+     (This : in out Instance)
+   is
+   begin
+      This.Append
+        (Instruction_Record'
+           (Control, [], This.Line, This.Column, Exit_Routine, No_Operand));
+   end Exit_Routine;
+
+   ------------------
+   -- Fail_Routine --
+   ------------------
+
+   procedure Fail_Routine
+     (This : in out Instance)
+   is
+   begin
+      This.Append
+        (Instruction_Record'
+           (Control, [], This.Line, This.Column, Fail_Routine, No_Operand));
+   end Fail_Routine;
+
+   --------------
+   -- Generate --
+   --------------
+
+   procedure Generate
+     (This   : in out Instance;
+      Target : in out Tagatha.Arch.Instance'Class)
+   is
+
+      procedure Gen_Instruction
+        (Routine : Routine_Record;
+         Index   : Positive);
+
+      procedure Update_Temporaries
+        (Routine : in out Routine_Record;
+         Index   : Positive);
+
+      ---------------------
+      -- Gen_Instruction --
+      ---------------------
+
+      procedure Gen_Instruction
+        (Routine : Routine_Record;
+         Index   : Positive)
+      is
+
+         Instruction : constant Instruction_Record :=
+                         Routine.Transfer_Code (Index);
+
+         function Get_Operand
+           (From   : Operand_Record;
+            Is_Dst : Boolean := False)
+            return Tagatha.Arch.Operand_Interface'Class;
+
+         -----------------
+         -- Get_Operand --
+         -----------------
+
+         function Get_Operand
+           (From   : Operand_Record;
+            Is_Dst : Boolean := False)
+            return Tagatha.Arch.Operand_Interface'Class
+         is
+         begin
+            case From.Class is
+               when No_Operand =>
+                  return Target.No_Operand;
+               when Stack_Operand =>
+                  pragma Assert (Is_Dst or else
+                                   not From.Reference, Instruction'Image);
+                  case From.Stack_Op is
+                     when Argument_Operand =>
+                        return Target.Argument_Operand
+                          (From.Content, Argument_Index (From.Index));
+                     when Local_Operand =>
+                        return Target.Local_Operand
+                          (From.Content, Local_Index (From.Index));
+                     when Result_Operand =>
+                        return Target.Result_Operand
+                          (From.Content, Result_Index (From.Index));
+                     when Return_Operand =>
+                        return Target.Return_Operand
+                          (From.Content, Return_Index (From.Index));
+                  end case;
+               when Constant_Operand =>
+                  return Target.Constant_Operand
+                    (From.Content, From.Word);
+               when External_Operand =>
+                  return Target.Name_Operand
+                    (Tagatha.Names.To_String (From.Name),
+                     From.Address, From.Imported);
+               when Temporary_Operand =>
+                  declare
+                     Rec         : constant Temporary_Record :=
+                                     Routine.Temporaries (From.Temp);
+                     First_Write : constant Boolean :=
+                                     Is_Dst and then Rec.First_Write = Index;
+                     Last_Read   : constant Boolean :=
+                                     not Is_Dst and then Rec.Last_Read = Index;
+                     Remap       : constant Operand_Record :=
+                                     Rec.Remap;
+                  begin
+                     --  Ada.Text_IO.Put_Line
+                     --    ("get-operand: t"
+                     --     & Integer'Image (-Integer (From.Temp))
+                     --     & "; index" & Index'Image
+                     --     & "; first-write" & Rec.First_Write'Image
+                     --       & "; last-read" & Rec.Last_Read'Image);
+                     if Remap.Class = No_Operand then
+                        return Target.Temporary_Operand
+                          (From.Temp, From.Content, First_Write, Last_Read);
+                     else
+                        return Get_Operand (Remap, Is_Dst);
+                     end if;
+                  end;
+
+            end case;
+
+         end Get_Operand;
+
+      begin
+
+         if False then
+            Target.Put_Comment (Instruction'Image);
+         end if;
+
+         Target.Set_Source_Location (Instruction.Line, Instruction.Column);
+         for Label of Instruction.Labels loop
+            This.Put_Label (Target, Label);
+         end loop;
+
+         case Instruction.Class is
+            when Block =>
+               null;
+            when Branch =>
+               Target.Branch (Get_Operand (Instruction.Branch_Op),
+                              Instruction.Condition,
+                              Positive (Instruction.Branch_To),
+                              Instruction.Forward);
+            when Call =>
+               if Instruction.Is_Subroutine then
+                  declare
+                     Actuals : Tagatha.Arch.Operand_Lists.List;
+                  begin
+                     for Arg of Instruction.Actuals loop
+                        Actuals.Append (Get_Operand (Arg));
+                     end loop;
+
+                     Target.Call
+                       (Destination    => Get_Operand (Instruction.Name),
+                        Actuals        => Actuals,
+                        Result_Count   => Instruction.Result_Count);
+                  end;
+               else
+                  Target.Jump (Get_Operand (Instruction.Name));
+               end if;
+            when Control =>
+               case Instruction.Control_Class is
+                  when Exit_Routine =>
+                     Target.Exit_Routine;
+                  when Fail_Routine =>
+                     Target.Fail_Routine;
+                  when Raise_Exception =>
+                     Target.Raise_Exception
+                       (Get_Operand (Instruction.Control_Op));
+                  when Retry_Routine =>
+                     Target.Retry
+                       (Get_Operand (Instruction.Control_Op).Image);
+               end case;
+            when Operate =>
+               null;
+            when Push =>
+               Ada.Text_IO.Put_Line (Instruction'Image);
+            when Pop =>
+               null;
+            when Stack =>
+               null;
+            when Transfer =>
+               declare
+                  Src_1 : constant Tagatha.Arch.Operand_Interface'Class :=
+                            Get_Operand (Instruction.Src_1);
+                  Src_2 : constant Tagatha.Arch.Operand_Interface'Class :=
+                            Get_Operand (Instruction.Src_2);
+                  Dst   : constant Tagatha.Arch.Operand_Interface'Class :=
+                            Get_Operand (Instruction.Dst, True);
+               begin
+                  Target.Transfer (Dst, Src_1, Src_2, Instruction.T_Op);
+               end;
+         end case;
+      end Gen_Instruction;
+
+      ------------------------
+      -- Update_Temporaries --
+      ------------------------
+
+      procedure Update_Temporaries
+        (Routine : in out Routine_Record;
+         Index   : Positive)
+      is
+
+         procedure Update_Operand
+           (Operand : Operand_Record;
+            Is_Dst  : Boolean := False);
+
+         --------------------
+         -- Update_Operand --
+         --------------------
+
+         procedure Update_Operand
+           (Operand : Operand_Record;
+            Is_Dst  : Boolean := False)
+         is
+         begin
+            case Operand.Class is
+               when No_Operand =>
+                  null;
+               when Stack_Operand =>
+                  null;
+               when Constant_Operand =>
+                  null;
+               when External_Operand =>
+                  null;
+               when Temporary_Operand =>
+                  while Routine.Temporaries.Last_Index <= Operand.Temp loop
+                     Routine.Temporaries.Append
+                       (Temporary_Record'(others => <>));
+                  end loop;
+
+                  declare
+                     Rec : Temporary_Record renames
+                             Routine.Temporaries (Operand.Temp);
+                  begin
+                     if Is_Dst then
+                        if Rec.First_Write = 0 then
+                           Rec.First_Write := Index;
+                        end if;
+                     else
+                        Rec.Last_Read := Index;
+                     end if;
+                  end;
+            end case;
+
+         end Update_Operand;
+
+         Instruction : constant Instruction_Record :=
+                         Routine.Transfer_Code (Index);
+      begin
+         case Instruction.Class is
+            when Block =>
+               null;
+            when Branch =>
+               Update_Operand (Instruction.Branch_Op);
+            when Call =>
+               for Actual of Instruction.Actuals loop
+                  Update_Operand (Actual);
+               end loop;
+            when Control =>
+               null;
+            when Operate =>
+               null;
+            when Push =>
+               null;
+            when Pop =>
+               null;
+            when Stack =>
+               null;
+            when Transfer =>
+               Update_Operand (Instruction.Src_1);
+               Update_Operand (Instruction.Src_2);
+               Update_Operand (Instruction.Dst, True);
+         end case;
+      end Update_Temporaries;
+
+   begin
+      for Routine of This.Routine_List loop
+
+         Improve (Routine);
+         Target.Begin_Routine
+           (Tagatha.Names.To_String (Routine.Name),
+            Routine.Last_Arg, Routine.Last_Res,
+            Routine.Last_Loc, Routine.Options.Linkage);
+
+         for Index in 1 .. Routine.Transfer_Code.Last_Index loop
+            Update_Temporaries (Routine, Index);
+         end loop;
+
+         for Index in 1 .. Routine.Transfer_Code.Last_Index loop
+            Gen_Instruction (Routine, Index);
+         end loop;
+
+         for Label of Routine.Set_Labels loop
+            This.Put_Label (Target, Label);
+         end loop;
+
+         Target.End_Routine;
+      end loop;
+
+      for Data of This.RO_Data_List loop
+         Target.Begin_Data
+           (Tagatha.Names.To_String (Data.Name),
+            Natural (Data.Bits),
+            Read_Write => False);
+         for Datum of Data.Data loop
+            case Datum.Class is
+               when Word_64_Element =>
+                  Target.Datum (Datum.Value);
+               when Label_Element =>
+                  Target.Label_Datum (Tagatha.Names.To_String (Datum.Name));
+            end case;
+         end loop;
+         Target.End_Data;
+      end loop;
+
+      for Data of This.RW_Data_List loop
+         Target.Begin_Data
+           (Tagatha.Names.To_String (Data.Name),
+            Natural (Data.Bits),
+            Read_Write => True);
+         for Datum of Data.Data loop
+            case Datum.Class is
+               when Word_64_Element =>
+                  Target.Datum (Datum.Value);
+               when Label_Element =>
+                  Target.Label_Datum (Tagatha.Names.To_String (Datum.Name));
+            end case;
+         end loop;
+         Target.End_Data;
+      end loop;
+
+      for Note of This.Notes loop
+         Target.Note
+           (Name => Tagatha.Names.To_String (Note.Name),
+            Tag  => Note.Tag,
+            Text => Tagatha.Names.To_String (Note.Description));
+      end loop;
+
+      for Handler of This.Handlers loop
+         Target.Note
+           (Name => "exception_handler",
+            Tag  => 1,
+            Text =>
+              Tagatha.Names.To_String (Handler.Base)
+            & ","
+            & Tagatha.Names.To_String (Handler.Bound)
+            & ","
+            & Tagatha.Names.To_String (Handler.Handler));
+      end loop;
+
+   end Generate;
 
    -----------------
    -- Get_Content --
@@ -988,308 +1360,20 @@ package body Tagatha.Code is
             Is_Indirect   => False));
    end Jump;
 
-   --------------
-   -- Generate --
-   --------------
+   -----------------
+   -- Named_Label --
+   -----------------
 
-   procedure Generate
-     (This   : in out Instance;
-      Target : in out Tagatha.Arch.Instance'Class)
+   function Named_Label
+     (This : in out Instance;
+      Name : String)
+      return Label
    is
-
-      procedure Gen_Instruction
-        (Routine : Routine_Record;
-         Index   : Positive);
-
-      procedure Update_Temporaries
-        (Routine : in out Routine_Record;
-         Index   : Positive);
-
-      ---------------------
-      -- Gen_Instruction --
-      ---------------------
-
-      procedure Gen_Instruction
-        (Routine : Routine_Record;
-         Index   : Positive)
-      is
-
-         Instruction : constant Instruction_Record :=
-                         Routine.Transfer_Code (Index);
-
-         function Get_Operand
-           (From   : Operand_Record;
-            Is_Dst : Boolean := False)
-            return Tagatha.Arch.Operand_Interface'Class;
-
-         -----------------
-         -- Get_Operand --
-         -----------------
-
-         function Get_Operand
-           (From   : Operand_Record;
-            Is_Dst : Boolean := False)
-            return Tagatha.Arch.Operand_Interface'Class
-         is
-         begin
-            case From.Class is
-               when No_Operand =>
-                  return Target.No_Operand;
-               when Stack_Operand =>
-                  pragma Assert (Is_Dst or else
-                                   not From.Reference, Instruction'Image);
-                  case From.Stack_Op is
-                     when Argument_Operand =>
-                        return Target.Argument_Operand
-                          (From.Content, Argument_Index (From.Index));
-                     when Local_Operand =>
-                        return Target.Local_Operand
-                          (From.Content, Local_Index (From.Index));
-                     when Result_Operand =>
-                        return Target.Result_Operand
-                          (From.Content, Result_Index (From.Index));
-                     when Return_Operand =>
-                        return Target.Return_Operand
-                          (From.Content, Return_Index (From.Index));
-                  end case;
-               when Constant_Operand =>
-                  return Target.Constant_Operand
-                    (From.Content, From.Word);
-               when External_Operand =>
-                  return Target.Name_Operand
-                    (Tagatha.Names.To_String (From.Name),
-                     From.Address, From.Imported);
-               when Temporary_Operand =>
-                  declare
-                     Rec         : constant Temporary_Record :=
-                                     Routine.Temporaries (From.Temp);
-                     First_Write : constant Boolean :=
-                                     Is_Dst and then Rec.First_Write = Index;
-                     Last_Read   : constant Boolean :=
-                                     not Is_Dst and then Rec.Last_Read = Index;
-                     Remap       : constant Operand_Record :=
-                                     Rec.Remap;
-                  begin
-                     --  Ada.Text_IO.Put_Line
-                     --    ("get-operand: t"
-                     --     & Integer'Image (-Integer (From.Temp))
-                     --     & "; index" & Index'Image
-                     --     & "; first-write" & Rec.First_Write'Image
-                     --       & "; last-read" & Rec.Last_Read'Image);
-                     if Remap.Class = No_Operand then
-                        return Target.Temporary_Operand
-                          (From.Temp, From.Content, First_Write, Last_Read);
-                     else
-                        return Get_Operand (Remap, Is_Dst);
-                     end if;
-                  end;
-
-            end case;
-
-         end Get_Operand;
-
-      begin
-
-         if False then
-            Target.Put_Comment (Instruction'Image);
-         end if;
-
-         Target.Set_Source_Location (Instruction.Line, Instruction.Column);
-         for Label of Instruction.Labels loop
-            Target.Local_Label (Positive (Label));
-         end loop;
-
-         case Instruction.Class is
-            when Block =>
-               null;
-            when Branch =>
-               Target.Branch (Get_Operand (Instruction.Branch_Op),
-                              Instruction.Condition,
-                              Positive (Instruction.Branch_To),
-                              Instruction.Forward);
-            when Call =>
-               if Instruction.Is_Subroutine then
-                  declare
-                     Actuals : Tagatha.Arch.Operand_Lists.List;
-                  begin
-                     for Arg of Instruction.Actuals loop
-                        Actuals.Append (Get_Operand (Arg));
-                     end loop;
-
-                     Target.Call
-                       (Destination    => Get_Operand (Instruction.Name),
-                        Actuals        => Actuals,
-                        Result_Count   => Instruction.Result_Count);
-                  end;
-               else
-                  Target.Jump (Get_Operand (Instruction.Name));
-               end if;
-            when Operate =>
-               null;
-            when Push =>
-               Ada.Text_IO.Put_Line (Instruction'Image);
-            when Pop =>
-               null;
-            when Stack =>
-               null;
-            when Transfer =>
-               declare
-                  Src_1 : constant Tagatha.Arch.Operand_Interface'Class :=
-                            Get_Operand (Instruction.Src_1);
-                  Src_2 : constant Tagatha.Arch.Operand_Interface'Class :=
-                            Get_Operand (Instruction.Src_2);
-                  Dst   : constant Tagatha.Arch.Operand_Interface'Class :=
-                            Get_Operand (Instruction.Dst, True);
-               begin
-                  Target.Transfer (Dst, Src_1, Src_2, Instruction.T_Op);
-               end;
-         end case;
-      end Gen_Instruction;
-
-      ------------------------
-      -- Update_Temporaries --
-      ------------------------
-
-      procedure Update_Temporaries
-        (Routine : in out Routine_Record;
-         Index   : Positive)
-      is
-
-         procedure Update_Operand
-           (Operand : Operand_Record;
-            Is_Dst  : Boolean := False);
-
-         --------------------
-         -- Update_Operand --
-         --------------------
-
-         procedure Update_Operand
-           (Operand : Operand_Record;
-            Is_Dst  : Boolean := False)
-         is
-         begin
-            case Operand.Class is
-               when No_Operand =>
-                  null;
-               when Stack_Operand =>
-                  null;
-               when Constant_Operand =>
-                  null;
-               when External_Operand =>
-                  null;
-               when Temporary_Operand =>
-                  while Routine.Temporaries.Last_Index <= Operand.Temp loop
-                     Routine.Temporaries.Append
-                       (Temporary_Record'(others => <>));
-                  end loop;
-
-                  declare
-                     Rec : Temporary_Record renames
-                             Routine.Temporaries (Operand.Temp);
-                  begin
-                     if Is_Dst then
-                        if Rec.First_Write = 0 then
-                           Rec.First_Write := Index;
-                        end if;
-                     else
-                        Rec.Last_Read := Index;
-                     end if;
-                  end;
-            end case;
-
-         end Update_Operand;
-
-         Instruction : constant Instruction_Record :=
-                         Routine.Transfer_Code (Index);
-      begin
-         case Instruction.Class is
-            when Block =>
-               null;
-            when Branch =>
-               Update_Operand (Instruction.Branch_Op);
-            when Call =>
-               for Actual of Instruction.Actuals loop
-                  Update_Operand (Actual);
-               end loop;
-            when Operate =>
-               null;
-            when Push =>
-               null;
-            when Pop =>
-               null;
-            when Stack =>
-               null;
-            when Transfer =>
-               Update_Operand (Instruction.Src_1);
-               Update_Operand (Instruction.Src_2);
-               Update_Operand (Instruction.Dst, True);
-         end case;
-      end Update_Temporaries;
-
    begin
-      for Routine of This.Routine_List loop
-
-         Improve (Routine);
-         Target.Begin_Routine
-           (Tagatha.Names.To_String (Routine.Name),
-            Routine.Last_Arg, Routine.Last_Res,
-            Routine.Last_Loc, Routine.Options.Linkage);
-
-         for Index in 1 .. Routine.Transfer_Code.Last_Index loop
-            Update_Temporaries (Routine, Index);
-         end loop;
-
-         for Index in 1 .. Routine.Transfer_Code.Last_Index loop
-            Gen_Instruction (Routine, Index);
-         end loop;
-
-         for Label of Routine.Set_Labels loop
-            Target.Local_Label (Positive (Label));
-         end loop;
-
-         Target.End_Routine;
-      end loop;
-
-      for Data of This.RO_Data_List loop
-         Target.Begin_Data
-           (Tagatha.Names.To_String (Data.Name),
-            Natural (Data.Bits),
-            Read_Write => False);
-         for Datum of Data.Data loop
-            case Datum.Class is
-               when Word_64_Element =>
-                  Target.Datum (Datum.Value);
-               when Label_Element =>
-                  Target.Label_Datum (Tagatha.Names.To_String (Datum.Name));
-            end case;
-         end loop;
-         Target.End_Data;
-      end loop;
-
-      for Data of This.RW_Data_List loop
-         Target.Begin_Data
-           (Tagatha.Names.To_String (Data.Name),
-            Natural (Data.Bits),
-            Read_Write => True);
-         for Datum of Data.Data loop
-            case Datum.Class is
-               when Word_64_Element =>
-                  Target.Datum (Datum.Value);
-               when Label_Element =>
-                  Target.Label_Datum (Tagatha.Names.To_String (Datum.Name));
-            end case;
-         end loop;
-         Target.End_Data;
-      end loop;
-
-      for Note of This.Notes loop
-         Target.Note
-           (Name => Tagatha.Names.To_String (Note.Name),
-            Tag  => Note.Tag,
-            Text => Tagatha.Names.To_String (Note.Description));
-      end loop;
-
-   end Generate;
+      return L : constant Label := This.Next_Label do
+         This.Named_Labels.Insert (L, Name);
+      end return;
+   end Named_Label;
 
    ----------------
    -- Next_Label --
@@ -1618,6 +1702,17 @@ package body Tagatha.Code is
               ("CALL " & Value.Name'Image
                & Value.Argument_Count'Image
                & Value.Result_Count'Image);
+         when Control =>
+            case Value.Control_Class is
+               when Exit_Routine =>
+                  Output.Put ("EXIT");
+               when Fail_Routine =>
+                  Output.Put ("FAIL");
+               when Raise_Exception =>
+                  Output.Put ("RAISE " & Value.Control_Op'Image);
+               when Retry_Routine =>
+                  Output.Put ("RETRY");
+            end case;
          when Operate =>
             Output.Put (Value.Op'Image);
          when Push =>
@@ -1654,6 +1749,25 @@ package body Tagatha.Code is
             end if;
       end case;
    end Put_Instruction_Image;
+
+   ---------------
+   -- Put_Label --
+   ---------------
+
+   procedure Put_Label
+     (This   : in out Instance;
+      Target : in out Tagatha.Arch.Instance'Class;
+      L      : Label)
+   is
+      Position : constant Named_Label_Maps.Cursor :=
+                   This.Named_Labels.Find (L);
+   begin
+      if Named_Label_Maps.Has_Element (Position) then
+         Target.Name_Label (This.Named_Labels (Position));
+      else
+         Target.Local_Label (Positive (L));
+      end if;
+   end Put_Label;
 
    -----------------------
    -- Put_Operand_Image --
@@ -1705,6 +1819,19 @@ package body Tagatha.Code is
       end case;
    end Put_Operand_Image;
 
+   ---------------------
+   -- Raise_Exception --
+   ---------------------
+
+   procedure Raise_Exception
+     (This : in out Instance)
+   is
+   begin
+      This.Append
+        (Instruction_Record'
+           (Control, [], This.Line, This.Column, Raise_Exception, No_Operand));
+   end Raise_Exception;
+
    ------------------
    -- Remove_Local --
    ------------------
@@ -1717,6 +1844,24 @@ package body Tagatha.Code is
    begin
       Routine.Last_Loc_Current := Routine.Last_Loc_Current - 1;
    end Remove_Local;
+
+   -------------------
+   -- Retry_Routine --
+   -------------------
+
+   procedure Retry_Routine
+     (This : in out Instance)
+   is
+      Retry_Label : constant String :=
+                      Tagatha.Names.To_String
+                        (This.Routine_List (This.Active_Routine).Name)
+                      & "$retry";
+   begin
+      This.Append
+        (Instruction_Record'
+           (Control, [], This.Line, This.Column, Retry_Routine,
+            Name_Operand (Retry_Label, General_Content, False, False)));
+   end Retry_Routine;
 
    ----------
    -- Save --

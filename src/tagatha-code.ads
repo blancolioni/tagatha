@@ -1,6 +1,7 @@
 private with Ada.Containers.Doubly_Linked_Lists;
 private with Ada.Containers.Indefinite_Doubly_Linked_Lists;
 private with Ada.Containers.Indefinite_Holders;
+private with Ada.Containers.Indefinite_Ordered_Maps;
 private with Ada.Containers.Indefinite_Vectors;
 private with Ada.Containers.Vectors;
 private with Ada.Strings.Text_Buffers;
@@ -20,6 +21,11 @@ package Tagatha.Code is
 
    function Next_Label
      (This : in out Instance)
+      return Label;
+
+   function Named_Label
+     (This : in out Instance;
+      Name : String)
       return Label;
 
    procedure Set_Label
@@ -209,6 +215,18 @@ package Tagatha.Code is
       Name    : String;
       Options : Routine_Options'Class := Default_Options);
 
+   procedure Exit_Routine
+     (This : in out Instance);
+
+   procedure Fail_Routine
+     (This : in out Instance);
+
+   procedure Retry_Routine
+     (This : in out Instance);
+
+   procedure Raise_Exception
+     (This       : in out Instance);
+
    procedure End_Routine
      (This : in out Instance);
 
@@ -227,6 +245,11 @@ package Tagatha.Code is
    procedure Generate
      (This   : in out Instance;
       Target : in out Tagatha.Arch.Instance'Class);
+
+   procedure Put_Label
+     (This   : in out Instance;
+      Target : in out Tagatha.Arch.Instance'Class;
+      L      : Label);
 
    procedure Save
      (This : Instance;
@@ -257,10 +280,13 @@ private
    is (Default_Options.Set_No_Linkage);
 
    type Instruction_Class is
-     (Block, Branch, Call, Operate, Pop, Push, Stack, Transfer);
+     (Block, Branch, Call, Control, Operate, Pop, Push, Stack, Transfer);
 
    type Stack_Instruction_Class is
      (Drop, Duplicate, Pop, Swap);
+
+   type Control_Instruction_Class is
+     (Exit_Routine, Fail_Routine, Raise_Exception, Retry_Routine);
 
    type Operand_Class is
      (No_Operand,
@@ -406,6 +432,9 @@ private
                Actuals        : Operand_Lists.List;
                Is_Subroutine  : Boolean;
                Is_Indirect    : Boolean;
+            when Control =>
+               Control_Class  : Control_Instruction_Class;
+               Control_Op     : Operand_Record;
             when Operate =>
                Op             : Operator;
             when Push | Pop =>
@@ -466,6 +495,10 @@ private
    package Label_Vectors is
      new Ada.Containers.Vectors (Real_Label, Label_Record);
 
+   package Named_Label_Maps is
+     new Ada.Containers.Indefinite_Ordered_Maps
+       (Label, String);
+
    type Data_Element_Class is
      (Word_64_Element, Label_Element);
 
@@ -508,15 +541,26 @@ private
    package Note_Lists is
      new Ada.Containers.Doubly_Linked_Lists (Note_Record);
 
+   type Exception_Handler_Record is
+      record
+         Base, Bound : Tagatha.Names.Tagatha_Name;
+         Handler     : Tagatha.Names.Tagatha_Name;
+      end record;
+
+   package Exception_Handler_Lists is
+     new Ada.Containers.Doubly_Linked_Lists (Exception_Handler_Record);
+
    type Instance is tagged
       record
          Routine_List   : Routine_Lists.List;
          RO_Data_List   : Labeled_Data_Lists.List;
          RW_Data_List   : Labeled_Data_Lists.List;
          Notes          : Note_Lists.List;
+         Handlers       : Exception_Handler_Lists.List;
          Active_Routine : Routine_Lists.Cursor;
          Label_Vector   : Label_Vectors.Vector;
          Last_Label     : Label := No_Label;
+         Named_Labels   : Named_Label_Maps.Map;
          Last_Temp      : Temporary_Count := 0;
          Line           : Positive := 1;
          Column         : Positive := 1;

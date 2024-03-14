@@ -371,8 +371,30 @@ package body Tagatha.Arch.M6502 is
      (This : in out Instance)
    is
    begin
-      This.Put_Instruction ("rts");
+      null;
    end End_Routine;
+
+   ------------------
+   -- Exit_Routine --
+   ------------------
+
+   overriding procedure Exit_Routine
+     (This : in out Instance)
+   is
+   begin
+      This.Put_Instruction ("rts");
+   end Exit_Routine;
+
+   ------------------
+   -- Fail_Routine --
+   ------------------
+
+   overriding procedure Fail_Routine
+     (This : in out Instance)
+   is
+   begin
+      This.Put_Instruction ("jsr __tagatha_exception_handler");
+   end Fail_Routine;
 
    -----------
    -- Image --
@@ -628,6 +650,30 @@ package body Tagatha.Arch.M6502 is
       This.Put_Line (To_String (S));
       This.Data_Buffer.Clear;
    end Put_Data_Buffer;
+
+   ---------------------
+   -- Raise_Exception --
+   ---------------------
+
+   overriding procedure Raise_Exception
+     (This    : in out Instance;
+      E       : Operand_Interface'Class)
+   is
+   begin
+      This.Put_Instruction ("jsr __tagatha_exception_handler");
+   end Raise_Exception;
+
+   -----------
+   -- Retry --
+   -----------
+
+   overriding procedure Retry
+     (This        : in out Instance;
+      Destination : String)
+   is
+   begin
+      This.Put_Instruction ("JMP", Destination);
+   end Retry;
 
    ---------
    -- STA --

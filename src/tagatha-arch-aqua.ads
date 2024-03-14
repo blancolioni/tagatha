@@ -7,8 +7,10 @@ package Tagatha.Arch.Aqua is
 
 private
 
-   Last_Register : constant := 240;
+   Last_Register : constant := 255;
+   Last_Local    : constant := 239;
    type Register_Index is range 0 .. Last_Register;
+   subtype Local_Register_Index is Register_Index range 0 .. Last_Local;
 
    function Show (Index : Register_Index) return String;
 
@@ -149,6 +151,20 @@ private
 
    overriding procedure End_Routine
      (This : in out Instance);
+
+   overriding procedure Exit_Routine
+     (This        : in out Instance);
+
+   overriding procedure Fail_Routine
+     (This        : in out Instance);
+
+   overriding procedure Retry
+     (This        : in out Instance;
+      Destination : String);
+
+   overriding procedure Raise_Exception
+     (This    : in out Instance;
+      E       : Operand_Interface'Class);
 
    overriding procedure Transfer
      (This         : in out Instance;

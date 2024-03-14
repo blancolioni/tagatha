@@ -114,6 +114,24 @@ package Tagatha.Arch is
       Forward     : Boolean)
    is abstract;
 
+   procedure Exit_Routine
+     (This        : in out Instance)
+   is abstract;
+
+   procedure Fail_Routine
+     (This        : in out Instance)
+   is abstract;
+
+   procedure Raise_Exception
+     (This    : in out Instance;
+      E       : Operand_Interface'Class)
+   is abstract;
+
+   procedure Retry
+     (This        : in out Instance;
+      Destination : String)
+   is abstract;
+
    package Operand_Lists is
      new Ada.Containers.Indefinite_Doubly_Linked_Lists
        (Operand_Interface'Class);

@@ -332,22 +332,10 @@ package body Tagatha.Arch.Aqua is
    is
    begin
       if This.Linkage then
-         This.Put_Instruction ("put", "rJ", Register_Image (This.Saved_J));
-         if This.First_Result > 0 then
-            for R in This.First_Result .. This.Result_Bound - 1 loop
-               This.Put_Instruction
-                 ("set", Register_Image (R - This.First_Result),
-                  Register_Image (R));
-            end loop;
-         end if;
          This.Release (This.Saved_J);
-         This.Put_Instruction
-           ("pop",
-            Register_Index'Image
-              (Register_Index'Max (This.Result_Bound - This.First_Result, 1)),
-            "0");
-         This.Temps := [others => <>];
       end if;
+
+      This.Temps := [others => <>];
 
       while This.Last_Ind_Written < This.Indirect_Vector.Last_Index loop
          This.Last_Ind_Written := @ + 1;
@@ -367,6 +355,49 @@ package body Tagatha.Arch.Aqua is
       end loop;
 
    end End_Routine;
+
+   ------------------
+   -- Exit_Routine --
+   ------------------
+
+   overriding procedure Exit_Routine
+     (This : in out Instance)
+   is
+   begin
+      if This.Linkage then
+         This.Put_Instruction ("put", "rJ", Register_Image (This.Saved_J));
+         if This.First_Result > 0 then
+            for R in This.First_Result .. This.Result_Bound - 1 loop
+               This.Put_Instruction
+                 ("set", Register_Image (R - This.First_Result),
+                  Register_Image (R));
+            end loop;
+         end if;
+         This.Put_Instruction
+           ("pop",
+            Register_Index'Image
+              (Register_Index'Max (This.Result_Bound - This.First_Result, 1)),
+            "0");
+      end if;
+
+   end Exit_Routine;
+
+   ------------------
+   -- Fail_Routine --
+   ------------------
+
+   overriding procedure Fail_Routine
+     (This        : in out Instance)
+   is
+   begin
+      This.Put_Instruction ("set", "%255", Register_Image (This.Saved_J));
+      This.Put_Instruction ("set", "%254", "%0");
+      This.Put_Instruction ("geta", "%253", "1f");
+      This.Put_Instruction ("put", "rJ", "%253");
+      This.Put_Instruction ("pop", "0", "0");
+      This.Local_Label (1);
+      This.Put_Instruction ("pushj", "%200", "system.exceptions.fail_handler");
+   end Fail_Routine;
 
    -----------
    -- Image --
@@ -575,6 +606,21 @@ package body Tagatha.Arch.Aqua is
 
    end Put_Data_Buffer;
 
+   ---------------------
+   -- Raise_Exception --
+   ---------------------
+
+   overriding procedure Raise_Exception
+     (This    : in out Instance;
+      E       : Operand_Interface'Class)
+   is
+   begin
+      Aqua_Operand_Instance'Class (E).Move_To_Register (This, 254);
+      This.Put_Instruction ("set", "%255", Register_Image (This.Saved_J));
+      This.Put_Instruction ("pushj", "%200",
+                            "system.exceptions.raise_handler");
+   end Raise_Exception;
+
    -------------
    -- Release --
    -------------
@@ -586,6 +632,19 @@ package body Tagatha.Arch.Aqua is
    begin
       This.Temps (R).Claimed := False;
    end Release;
+
+   -----------
+   -- Retry --
+   -----------
+
+   overriding procedure Retry
+     (This        : in out Instance;
+      Destination : String)
+   is
+   begin
+      This.Put_Instruction ("put", "rJ", Register_Image (This.Saved_J));
+      This.Put_Instruction ("jmp", Destination);
+   end Retry;
 
    -----------------------
    -- Set_From_Register --
