@@ -163,7 +163,8 @@ package body Tagatha.Code.Improvements is
         and then Next.Condition /= Always
         and then Current.Class = Transfer
         and then Current.T_Op = Op_Not
-        and then Current.Dst = Next.Branch_Op;
+        and then Current.Dst = Next.Branch_Op
+        and then Current.Dst.Class = Temporary_Operand;
    end Test;
 
    ----------
