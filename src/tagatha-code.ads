@@ -255,6 +255,11 @@ package Tagatha.Code is
      (This : Instance;
       Path : String);
 
+   procedure Enable_Trace
+     (Enable_P_Code       : Boolean := False;
+      Enable_Transfers    : Boolean := False;
+      Enable_Improvements : Boolean := False);
+
 private
 
    type Label is new Natural;

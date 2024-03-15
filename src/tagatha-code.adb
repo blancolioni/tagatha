@@ -4,9 +4,9 @@ with Tagatha.Code.Improvements;
 
 package body Tagatha.Code is
 
-   Trace_P_Code       : constant Boolean := False;
-   Trace_Transfers    : constant Boolean := False;
-   Trace_Improvements : constant Boolean := False;
+   Trace_P_Code       : Boolean := False;
+   Trace_Transfers    : Boolean := False;
+   Trace_Improvements : Boolean := False;
 
    function Get_Content
      (A, B, C : Operand_Record := No_Operand)
@@ -507,6 +507,13 @@ package body Tagatha.Code is
          end case;
       end loop;
       Routine.Transfer_Code := New_Code;
+
+      if Trace_Transfers then
+         Ada.Text_IO.Put_Line ("--- TRANSFERS");
+         for T of Routine.Transfer_Code loop
+            Ada.Text_IO.Put_Line (T'Image);
+         end loop;
+      end if;
    end Create_Transfers;
 
    ----------
@@ -660,6 +667,21 @@ package body Tagatha.Code is
       This.Append
         (Instruction_Record'(Stack, [], This.Line, This.Column, Duplicate));
    end Duplicate;
+
+   ------------------
+   -- Enable_Trace --
+   ------------------
+
+   procedure Enable_Trace
+     (Enable_P_Code       : Boolean := False;
+      Enable_Transfers    : Boolean := False;
+      Enable_Improvements : Boolean := False)
+   is
+   begin
+      Trace_P_Code := Enable_P_Code;
+      Trace_Transfers := Enable_Transfers;
+      Trace_Improvements := Enable_Improvements;
+   end Enable_Trace;
 
    ---------------
    -- End_Block --
@@ -1082,6 +1104,14 @@ package body Tagatha.Code is
       for Routine of This.Routine_List loop
 
          Improve (Routine);
+
+         if Trace_Transfers then
+            Ada.Text_IO.Put_Line ("--- IMPROVEMENTS");
+            for T of Routine.Transfer_Code loop
+               Ada.Text_IO.Put_Line (T'Image);
+            end loop;
+         end if;
+
          Target.Begin_Routine
            (Tagatha.Names.To_String (Routine.Name),
             Routine.Last_Arg, Routine.Last_Res,
@@ -1283,6 +1313,10 @@ package body Tagatha.Code is
                                             (Index + 1,
                                              Ada.Containers.Count_Type
                                                (Change.Last - Change.First));
+                                       end if;
+                                       if Trace_Improvements then
+                                          Ada.Text_IO.Put_Line
+                                            ("  new:     " & New_Instr'Image);
                                        end if;
                                     end;
 
