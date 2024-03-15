@@ -391,7 +391,6 @@ package body Tagatha.Arch.Aqua is
    is
    begin
       This.Put_Instruction ("set", "%255", Register_Image (This.Saved_J));
-      This.Put_Instruction ("set", "%254", "%0");
       This.Put_Instruction ("geta", "%253", "1f");
       This.Put_Instruction ("put", "rJ", "%253");
       This.Put_Instruction ("pop", "0", "0");
