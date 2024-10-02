@@ -19,11 +19,10 @@ package body Tagatha.Arch.Loader is
         Ada.Strings.Equal_Case_Insensitive);
 
    Arch_Loader_Map : Arch_Loader_Maps.Map :=
-                       [
-                          ["aqua", Load_Aqua'Access ],
-                          ["6502", Load_6502'Access ],
-                          ["pdp-11", Load_Pdp11'Access ]
-                       ];
+     ["aqua" => Load_Aqua'Access,
+      "6502" => Load_6502'Access,
+      "pdp11" => Load_Pdp11'Access
+     ];
 
    ---------
    -- Get --
@@ -78,8 +77,4 @@ package body Tagatha.Arch.Loader is
       Arch_Loader_Map.Insert (Name, Loader);
    end Register;
 
-begin
-   Register ("6502", Load_6502'Access);
-   Register ("aqua", Load_Aqua'Access);
-   Register ("pdp-11", Load_Pdp11'Access);
 end Tagatha.Arch.Loader;

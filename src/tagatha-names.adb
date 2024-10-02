@@ -15,7 +15,7 @@ package body Tagatha.Names is
         Ada.Strings.Equal_Case_Insensitive);
 
    Name_Vector : String_Vectors.Vector := [""];
-   Name_Map    : String_Maps.Map := [["", 0]];
+   Name_Map    : String_Maps.Map := ["" => 0];
 
    -------------
    -- To_Name --
