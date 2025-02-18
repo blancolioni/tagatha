@@ -255,6 +255,12 @@ package Tagatha.Code is
      (This : Instance;
       Path : String);
 
+   type Trace_Callback is access
+     procedure (Message : String);
+
+   procedure Set_Trace_Callback
+     (Trace : Trace_Callback);
+
    procedure Enable_Trace
      (Enable_P_Code       : Boolean := False;
       Enable_Transfers    : Boolean := False;

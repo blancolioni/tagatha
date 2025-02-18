@@ -4,9 +4,17 @@ with Tagatha.Code.Improvements;
 
 package body Tagatha.Code is
 
-   Trace_P_Code       : Boolean := False;
-   Trace_Transfers    : Boolean := False;
-   Trace_Improvements : Boolean := False;
+   type Trace_Category is (P_Code, Transfers, Optimize);
+
+   Trace_Enabled : array (Trace_Category) of Boolean := [others => False];
+
+   procedure Default_Trace_Proc (Message : String);
+
+   Trace_Proc         : Trace_Callback := Default_Trace_Proc'Access;
+
+   procedure Trace
+     (Category : Trace_Category;
+      Message  : String);
 
    function Get_Content
      (A, B, C : Operand_Record := No_Operand)
@@ -78,9 +86,7 @@ package body Tagatha.Code is
       Routine.Stack_Code.Append (Instr);
       Update (Routine, Instr);
       Routine.Set_Labels.Clear;
-      if Trace_P_Code then
-         Ada.Text_IO.Put_Line (Instr'Image);
-      end if;
+      Trace (P_Code, Instr'Image);
    end Append;
 
    ----------------------
@@ -304,12 +310,12 @@ package body Tagatha.Code is
    begin
       for Instruction of Routine.Stack_Code loop
 
-         if Trace_Transfers then
+         if Trace_Enabled (Transfers) then
             for Operand of Operand_Stack loop
-               Ada.Text_IO.Put_Line ("    " & Operand'Image);
+               Trace (Transfers, "    " & Operand'Image);
             end loop;
-            Ada.Text_IO.Put_Line (Instruction'Image);
-            Ada.Text_IO.Put_Line ("---------------------");
+            Trace (Transfers, Instruction'Image);
+            Trace (Transfers, "---------------------");
          end if;
 
          case Instruction.Class is
@@ -409,9 +415,7 @@ package body Tagatha.Code is
                                         T_Op      => Op_Store,
                                         Dst       => Src_2);
                         begin
-                           if Trace_Transfers then
-                              Ada.Text_IO.Put_Line (Store'Image);
-                           end if;
+                           Trace (Transfers, Store'Image);
                            Append (Store);
                         end;
                      end if;
@@ -508,10 +512,10 @@ package body Tagatha.Code is
       end loop;
       Routine.Transfer_Code := New_Code;
 
-      if Trace_Transfers then
-         Ada.Text_IO.Put_Line ("--- TRANSFERS");
+      if Trace_Enabled (Transfers) then
+         Trace_Proc ("--- TRANSFERS");
          for T of Routine.Transfer_Code loop
-            Ada.Text_IO.Put_Line (T'Image);
+            Trace_Proc (T'Image);
          end loop;
       end if;
    end Create_Transfers;
@@ -618,6 +622,15 @@ package body Tagatha.Code is
       return Routine_Options'(others => <>);
    end Default_Options;
 
+   ------------------------
+   -- Default_Trace_Proc --
+   ------------------------
+
+   procedure Default_Trace_Proc (Message : String) is
+   begin
+      Ada.Text_IO.Put_Line (Message);
+   end Default_Trace_Proc;
+
    -----------------
    -- Dereference --
    -----------------
@@ -678,9 +691,10 @@ package body Tagatha.Code is
       Enable_Improvements : Boolean := False)
    is
    begin
-      Trace_P_Code := Enable_P_Code;
-      Trace_Transfers := Enable_Transfers;
-      Trace_Improvements := Enable_Improvements;
+      Trace_Enabled :=
+        [P_Code      => Enable_P_Code,
+         Transfers   => Enable_Transfers,
+         Optimize    => Enable_Improvements];
    end Enable_Trace;
 
    ---------------
@@ -1105,11 +1119,13 @@ package body Tagatha.Code is
 
          Improve (Routine);
 
-         if Trace_Transfers then
-            Ada.Text_IO.Put_Line ("--- IMPROVEMENTS");
+         if Trace_Enabled (Optimize) then
+            Trace_Proc ("--- IMPROVEMENTS");
             for T of Routine.Transfer_Code loop
-               Ada.Text_IO.Put_Line (T'Image);
+               Trace_Proc (T'Image);
             end loop;
+            Trace_Proc ("--- DONE");
+
          end if;
 
          Target.Begin_Routine
@@ -1276,12 +1292,12 @@ package body Tagatha.Code is
                   begin
                      if Improvement.Test (Instr, Next) then
 
-                        if Trace_Improvements then
-                           Ada.Text_IO.Put_Line
+                        if Trace_Enabled (Optimize) then
+                           Trace_Proc
                              ("applying: " & Improvement.Name);
-                           Ada.Text_IO.Put_Line
+                           Trace_Proc
                              ("  current: " & Instr'Image);
-                           Ada.Text_IO.Put_Line
+                           Trace_Proc
                              ("  next:    " & Next'Image);
                         end if;
 
@@ -1314,15 +1330,15 @@ package body Tagatha.Code is
                                              Ada.Containers.Count_Type
                                                (Change.Last - Change.First));
                                        end if;
-                                       if Trace_Improvements then
-                                          Ada.Text_IO.Put_Line
+                                       if Trace_Enabled (Optimize) then
+                                          Trace_Proc
                                             ("  new:     " & New_Instr'Image);
                                        end if;
                                     end;
 
                                  when Remap_Temporary =>
-                                    if Trace_Improvements then
-                                       Ada.Text_IO.Put_Line
+                                    if Trace_Enabled (Optimize) then
+                                       Trace_Proc
                                          ("remap" & Change.Temp'Image
                                           & " to " & Change.Map_To'Image);
                                     end if;
@@ -1773,6 +1789,16 @@ package body Tagatha.Code is
             elsif Value.T_Op in Unary_Operator then
                Output.Put (Value.Dst'Image & " <- " & Image (Value.T_Op)
                            & " " & Value.Src_2'Image);
+            elsif Value.T_Op = Op_Dereference then
+               Output.Put (Value.Dst'Image & " <- ");
+               if Value.Src_2.Class = Constant_Operand
+                 and then Value.Src_2.Word = 0
+               then
+                  Output.Put ("(" & Value.Src_1'Image & ")");
+               else
+                  Output.Put
+                    (Value.Src_2'Image & "(" & Value.Src_1'Image & ")");
+               end if;
             else
                Output.Put (Value.Dst'Image & " <- "
                            & Value.Src_1'Image
@@ -1960,6 +1986,17 @@ package body Tagatha.Code is
         (Routine_Options (This) with delta Linkage => False);
    end Set_No_Linkage;
 
+   ------------------------
+   -- Set_Trace_Callback --
+   ------------------------
+
+   procedure Set_Trace_Callback
+     (Trace : Trace_Callback)
+   is
+   begin
+      Trace_Proc := Trace;
+   end Set_Trace_Callback;
+
    ---------------------
    -- Source_Location --
    ---------------------
@@ -2073,6 +2110,20 @@ package body Tagatha.Code is
             Dst    => T);
       end if;
    end To_Transfer;
+
+   -----------
+   -- Trace --
+   -----------
+
+   procedure Trace
+     (Category : Trace_Category;
+      Message  : String)
+   is
+   begin
+      if Trace_Enabled (Category) and then Trace_Proc /= null then
+         Trace_Proc (Message);
+      end if;
+   end Trace;
 
    ------------
    -- Update --
