@@ -266,6 +266,9 @@ package Tagatha.Code is
       Enable_Transfers    : Boolean := False;
       Enable_Improvements : Boolean := False);
 
+   function Get_Label_Index (L : Label) return Natural;
+   function From_Label_Index (Index : Natural) return Label;
+
 private
 
    type Label is new Natural;
@@ -273,6 +276,10 @@ private
 
    function Has_Label (L : Label) return Boolean
    is (L /= No_Label);
+
+   function Get_Label_Index (L : Label) return Natural is (Natural (L));
+
+   function From_Label_Index (Index : Natural) return Label is (Label (Index));
 
    type Routine_Options is tagged
       record
