@@ -706,16 +706,25 @@ package body Tagatha.Arch.Pdp11 is
          Src_To_Dst (2);
          This.Put_Instruction (Op_Name, Dst_Image);
       elsif Op = Op_Dereference then
+         --  Read the value at offset(address). The address (Src_1) is an
+         --  in-memory or immediate operand, so load it into scratch R1 first;
+         --  "n(operand)" is not a legal PDP-11 mode unless the base is a
+         --  register. Offset is the constant Src_2 ("#n" -> "n"). R1 is never
+         --  a temporary (those are R2-R4) so it is always free as scratch.
+         This.Put_Instruction ("MOV", Src_1_Image, "R1");
          This.Put_Instruction
            ("MOV",
-            Src_2_Image (2 .. Src_2_Image'Last)
-            & "(" & Src_1_Image & ")",
+            Src_2_Image (2 .. Src_2_Image'Last) & "(R1)",
             Dst_Image);
       elsif Op = Op_Store then
+         --  Store Src_1 (the value) at offset(address). Load the address
+         --  (Dst) into scratch R1, then write to offset(R1). Mirror of
+         --  Op_Dereference.
+         This.Put_Instruction ("MOV", Dst_Image, "R1");
          This.Put_Instruction
            ("MOV",
-            Src_2_Image,
-            "(" & Dst_Image & ")");
+            Src_1_Image,
+            Src_2_Image (2 .. Src_2_Image'Last) & "(R1)");
       elsif Op in Floating_Point_Operator then
          This.Put_Instruction ("LDF", Src_1_Image, "AC0");
          This.Put_Instruction (Op_Name, Src_2_Image, "AC0");
