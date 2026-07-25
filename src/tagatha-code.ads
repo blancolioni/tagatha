@@ -517,6 +517,13 @@ private
      new Ada.Containers.Indefinite_Ordered_Maps
        (Label, String);
 
+   --  Reverse map (name -> label) used to intern named labels within a
+   --  routine, so repeated Named_Label (Name) calls return the same label.
+   --  Reset at Begin_Routine (labels are attached to the active routine).
+   package Label_Name_Maps is
+     new Ada.Containers.Indefinite_Ordered_Maps
+       (String, Label);
+
    type Data_Element_Class is
      (Word_64_Element, Label_Element);
 
@@ -579,6 +586,7 @@ private
          Label_Vector   : Label_Vectors.Vector;
          Last_Label     : Label := No_Label;
          Named_Labels   : Named_Label_Maps.Map;
+         Label_Names    : Label_Name_Maps.Map;
          Last_Temp      : Temporary_Count := 0;
          Line           : Positive := 1;
          Column         : Positive := 1;

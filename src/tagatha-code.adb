@@ -160,6 +160,9 @@ package body Tagatha.Code is
             Last_Arg => Options.Arg_Count,
             others   => <>));
       This.Active_Routine := This.Routine_List.Last;
+      --  Named labels are routine-scoped: start each routine with an empty
+      --  name->label map so the same goto name in another routine is distinct.
+      This.Label_Names.Clear;
    end Begin_Routine;
 
    ------------
@@ -1419,10 +1422,21 @@ package body Tagatha.Code is
       Name : String)
       return Label
    is
+      Position : constant Label_Name_Maps.Cursor :=
+                   This.Label_Names.Find (Name);
    begin
-      return L : constant Label := This.Next_Label do
-         This.Named_Labels.Insert (L, Name);
-      end return;
+      if Label_Name_Maps.Has_Element (Position) then
+         return Label_Name_Maps.Element (Position);
+      else
+         --  Intern the name so repeated Named_Label (Name) calls in this
+         --  routine return the same label, but leave the label anonymous in
+         --  output (Local_Label / "L<index>"). The arch references local
+         --  branch targets by index, so a symbolic name at the definition
+         --  would not match "BR L<index>" at the branch site.
+         return L : constant Label := This.Next_Label do
+            This.Label_Names.Insert (Name, L);
+         end return;
+      end if;
    end Named_Label;
 
    ----------------
