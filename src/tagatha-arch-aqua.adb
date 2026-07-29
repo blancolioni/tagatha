@@ -316,8 +316,7 @@ package body Tagatha.Arch.Aqua is
    function Claim_Pair (This : in out Instance'Class) return Register_Index is
    begin
       for R in This.First_Temp .. Last_Register - 1 loop
-         if R mod 2 = 0
-           and then not This.Temps (R).Claimed
+         if not This.Temps (R).Claimed
            and then This.Temps (R).Assignment = 0
            and then not This.Temps (R + 1).Claimed
            and then This.Temps (R + 1).Assignment = 0
@@ -534,7 +533,7 @@ package body Tagatha.Arch.Aqua is
                      "no image for " & Operand'Image);
    begin
       if Operand.Content = Floating_Point_Content then
-         --  register-backed double: copy the even/odd pair
+         --  register-backed double: copy both halves of the pair
          if Operand.R /= Destination then
             This.Put_Instruction
               ("set", Register_Image (Destination),
@@ -583,8 +582,7 @@ package body Tagatha.Arch.Aqua is
 
    begin
       if Operand.Content = Floating_Point_Content then
-         --  binary64 bit pattern: high word in the even register,
-         --  low word in the odd
+         --  binary64 bit pattern: high word in R, low word in R + 1
          Load (Destination, Operand.Value / 2 ** 32);
          Load (Destination + 1, Operand.Value mod 2 ** 32);
       else
@@ -805,9 +803,8 @@ package body Tagatha.Arch.Aqua is
             State : Register_State renames This.Temps (R);
          begin
             if Is_Pair then
-               --  doubles need an even/odd pair; R is the even register
-               if R mod 2 = 0
-                 and then R < Last_Register
+               --  doubles need the pair (R, R + 1); R holds the high word
+               if R < Last_Register
                  and then not State.Claimed
                  and then not This.Temps (R + 1).Claimed
                then
@@ -942,8 +939,8 @@ package body Tagatha.Arch.Aqua is
         (Operand : Aqua_Operand_Instance'Class;
          R       : out Register_Index;
          Claimed : out Boolean);
-      --  ensure a float operand is in an even/odd register pair;
-      --  R is the even register, Claimed is True if we claimed it here
+      --  ensure a float operand is in a register pair (R, R + 1);
+      --  R holds the high word, Claimed is True if we claimed it here
 
       --  A temporary read for the last time is freed before Transfer is
       --  called, but its value is still needed until the instruction has

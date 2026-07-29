@@ -194,15 +194,17 @@ private
      with Pre => R in This.First_Temp .. This.Temp_Bound - 1
        and then This.Temps (R).Claimed;
 
-   --  A double lives in an even/odd register pair; the even (lower)
-   --  register holds the high 32 bits.  Claim_Pair returns the even
-   --  register with both R and R + 1 marked claimed.
+   --  A double lives in the register pair (R, R + 1) for any R; the lower
+   --  register holds the high 32 bits.  There is no even-alignment rule --
+   --  the Aqua FPU operand fields are full register numbers, so parity
+   --  would only cost padding in the frame and arg region.  Claim_Pair
+   --  returns the lower register with both R and R + 1 marked claimed; it
+   --  never returns Last_Register, which has no successor.
    function Claim_Pair (This : in out Instance'Class) return Register_Index;
    procedure Release_Pair
      (This : in out Instance'Class;
       R    : Register_Index)
-     with Pre => R mod 2 = 0
-       and then R in This.First_Temp .. This.Temp_Bound - 2
+     with Pre => R in This.First_Temp .. This.Temp_Bound - 2
        and then This.Temps (R).Claimed
        and then This.Temps (R + 1).Claimed;
 
