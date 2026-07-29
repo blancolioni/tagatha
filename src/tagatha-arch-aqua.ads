@@ -183,12 +183,28 @@ private
 
    overriding procedure Put_Data_Buffer (This : in out Instance);
 
+   overriding procedure Datum
+     (This  : in out Instance;
+      Value : Word_64);
+
    function Claim (This : in out Instance'Class) return Register_Index;
    procedure Release
      (This : in out Instance'Class;
       R    : Register_Index)
      with Pre => R in This.First_Temp .. This.Temp_Bound - 1
        and then This.Temps (R).Claimed;
+
+   --  A double lives in an even/odd register pair; the even (lower)
+   --  register holds the high 32 bits.  Claim_Pair returns the even
+   --  register with both R and R + 1 marked claimed.
+   function Claim_Pair (This : in out Instance'Class) return Register_Index;
+   procedure Release_Pair
+     (This : in out Instance'Class;
+      R    : Register_Index)
+     with Pre => R mod 2 = 0
+       and then R in This.First_Temp .. This.Temp_Bound - 2
+       and then This.Temps (R).Claimed
+       and then This.Temps (R + 1).Claimed;
 
    function Indirect_Label
      (This           : in out Instance;

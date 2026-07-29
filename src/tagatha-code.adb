@@ -380,8 +380,10 @@ package body Tagatha.Code is
                                     Dereference => False,
                                     Offset      => 0,
                                     Content     =>
-                                      Get_Content (Src_1, Src_2,
-                                       No_Operand, Instruction.Op),
+                                      Operand_Content'Max
+                                        (Instruction.Op_Content,
+                                         Get_Content (Src_1, Src_2,
+                                           No_Operand, Instruction.Op)),
                                     Temp        => This.Next_Temporary));
                begin
                   if Instruction.Op = Op_Store then
@@ -645,7 +647,9 @@ package body Tagatha.Code is
    is
    begin
       This.Push_Constant (Offset);
-      This.Operate (Op_Dereference);
+      This.Append
+        (Instruction_Record'
+           (Operate, [], This.Line, This.Column, Op_Dereference, Content));
    end Dereference;
 
    -----------------
@@ -1494,7 +1498,7 @@ package body Tagatha.Code is
    begin
       This.Append
         (Instruction_Record'
-           (Operate, [], This.Line, This.Column, Op));
+           (Operate, [], This.Line, This.Column, Op, General_Content));
    end Operate;
 
    -----------------

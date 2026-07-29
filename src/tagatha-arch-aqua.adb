@@ -309,6 +309,47 @@ package body Tagatha.Arch.Aqua is
         "Claim: no available temporaries";
    end Claim;
 
+   ----------------
+   -- Claim_Pair --
+   ----------------
+
+   function Claim_Pair (This : in out Instance'Class) return Register_Index is
+   begin
+      for R in This.First_Temp .. Last_Register - 1 loop
+         if R mod 2 = 0
+           and then not This.Temps (R).Claimed
+           and then This.Temps (R).Assignment = 0
+           and then not This.Temps (R + 1).Claimed
+           and then This.Temps (R + 1).Assignment = 0
+         then
+            This.Temps (R).Claimed := True;
+            This.Temps (R + 1).Claimed := True;
+            This.Temp_Bound := Register_Index'Max (This.Temp_Bound, R + 2);
+            return R;
+         end if;
+      end loop;
+      raise Constraint_Error with
+        "Claim_Pair: no available temporaries";
+   end Claim_Pair;
+
+   -----------
+   -- Datum --
+   -----------
+
+   overriding procedure Datum
+     (This  : in out Instance;
+      Value : Word_64)
+   is
+   begin
+      if This.Data_Bits = 64 then
+         --  double: two 32-bit words, high word first
+         Parent (This).Datum (Value / 2 ** 32);
+         Parent (This).Datum (Value mod 2 ** 32);
+      else
+         Parent (This).Datum (Value);
+      end if;
+   end Datum;
+
    --------------
    -- End_Data --
    --------------
@@ -492,8 +533,20 @@ package body Tagatha.Arch.Aqua is
       pragma Assert (Src_Image /= "",
                      "no image for " & Operand'Image);
    begin
-      This.Put_Instruction
-        ("set", Register_Image (Destination), Src_Image);
+      if Operand.Content = Floating_Point_Content then
+         --  register-backed double: copy the even/odd pair
+         if Operand.R /= Destination then
+            This.Put_Instruction
+              ("set", Register_Image (Destination),
+               Register_Image (Operand.R));
+            This.Put_Instruction
+              ("set", Register_Image (Destination + 1),
+               Register_Image (Operand.R + 1));
+         end if;
+      elsif Src_Image /= Register_Image (Destination) then
+         This.Put_Instruction
+           ("set", Register_Image (Destination), Src_Image);
+      end if;
    end Move_To_Register;
 
    ----------------------
@@ -505,19 +558,37 @@ package body Tagatha.Arch.Aqua is
       This        : in out Instance'Class;
       Destination : Register_Index)
    is
-      Lo : constant Word_64 := Operand.Value mod 65536;
-      Hi : constant Word_64 := Operand.Value / 65536;
-   begin
-      if Operand.Value = 0 or else Lo /= 0 then
-         This.Put_Instruction
-           ("setl", Register_Image (Destination), Lo'Image);
-         if Hi /= 0 then
+      procedure Load (R : Register_Index; Value : Word_64);
+
+      ----------
+      -- Load --
+      ----------
+
+      procedure Load (R : Register_Index; Value : Word_64) is
+         Lo : constant Word_64 := Value mod 65536;
+         Hi : constant Word_64 := Value / 65536;
+      begin
+         if Value = 0 or else Lo /= 0 then
             This.Put_Instruction
-              ("inch", Register_Image (Destination), Hi'Image);
+              ("setl", Register_Image (R), Lo'Image);
+            if Hi /= 0 then
+               This.Put_Instruction
+                 ("inch", Register_Image (R), Hi'Image);
+            end if;
+         else
+            This.Put_Instruction
+              ("seth", Register_Image (R), Hi'Image);
          end if;
+      end Load;
+
+   begin
+      if Operand.Content = Floating_Point_Content then
+         --  binary64 bit pattern: high word in the even register,
+         --  low word in the odd
+         Load (Destination, Operand.Value / 2 ** 32);
+         Load (Destination + 1, Operand.Value mod 2 ** 32);
       else
-         This.Put_Instruction
-           ("seth", Register_Image (Destination), Hi'Image);
+         Load (Destination, Operand.Value);
       end if;
    end Move_To_Register;
 
@@ -632,6 +703,19 @@ package body Tagatha.Arch.Aqua is
       This.Temps (R).Claimed := False;
    end Release;
 
+   ------------------
+   -- Release_Pair --
+   ------------------
+
+   procedure Release_Pair
+     (This : in out Instance'Class;
+      R    : Register_Index)
+   is
+   begin
+      This.Temps (R).Claimed := False;
+      This.Temps (R + 1).Claimed := False;
+   end Release_Pair;
+
    -----------
    -- Retry --
    -----------
@@ -713,13 +797,45 @@ package body Tagatha.Arch.Aqua is
       Last_Read   : Boolean)
       return Operand_Interface'Class
    is
-      R : Register_Index := This.First_Temp;
+      Is_Pair : constant Boolean := Content = Floating_Point_Content;
+      R       : Register_Index := This.First_Temp;
    begin
       loop
          declare
             State : Register_State renames This.Temps (R);
          begin
-            if not State.Claimed then
+            if Is_Pair then
+               --  doubles need an even/odd pair; R is the even register
+               if R mod 2 = 0
+                 and then R < Last_Register
+                 and then not State.Claimed
+                 and then not This.Temps (R + 1).Claimed
+               then
+                  declare
+                     Next : Register_State renames This.Temps (R + 1);
+                  begin
+                     if First_Write then
+                        if State.Assignment = 0
+                          and then Next.Assignment = 0
+                        then
+                           State.Assignment := Index;
+                           Next.Assignment := Index;
+                           This.Temp_Bound :=
+                             Register_Index'Max (This.Temp_Bound, R + 2);
+                           exit;
+                        end if;
+                     else
+                        if State.Assignment = Index then
+                           if Last_Read then
+                              State.Assignment := 0;
+                              Next.Assignment := 0;
+                           end if;
+                           exit;
+                        end if;
+                     end if;
+                  end;
+               end if;
+            elsif not State.Claimed then
                if First_Write then
                   if State.Assignment = 0 then
                      State.Assignment := Index;
@@ -815,11 +931,131 @@ package body Tagatha.Arch.Aqua is
       Src_1_Image : constant String := Src_1.Image;
       Src_2_Image : constant String := Src_2.Image;
       Dst_Image   : constant String := Dst.Image;
+
+      Dst_Float   : constant Boolean :=
+                      Dst_Op.Content = Floating_Point_Content;
+      Src_Float   : constant Boolean :=
+                      Src_1_Op.Content = Floating_Point_Content
+                        or else Src_2_Op.Content = Floating_Point_Content;
+
+      procedure Materialise_Pair
+        (Operand : Aqua_Operand_Instance'Class;
+         R       : out Register_Index;
+         Claimed : out Boolean);
+      --  ensure a float operand is in an even/odd register pair;
+      --  R is the even register, Claimed is True if we claimed it here
+
+      --  A temporary read for the last time is freed before Transfer is
+      --  called, but its value is still needed until the instruction has
+      --  been emitted.  Guard the registers of the incoming operands so
+      --  that Claim/Claim_Pair during emission cannot take them.
+      Guarded : array (Register_Index) of Boolean := [others => False];
+
+      procedure Guard (Operand : Aqua_Operand_Instance'Class);
+      procedure Release_Guards;
+
+      -----------
+      -- Guard --
+      -----------
+
+      procedure Guard (Operand : Aqua_Operand_Instance'Class) is
+         procedure Mark (R : Register_Index);
+
+         ----------
+         -- Mark --
+         ----------
+
+         procedure Mark (R : Register_Index) is
+         begin
+            if R in This.First_Temp .. Last_Register
+              and then not This.Temps (R).Claimed
+              and then This.Temps (R).Assignment = 0
+            then
+               This.Temps (R).Claimed := True;
+               Guarded (R) := True;
+            end if;
+         end Mark;
+
+      begin
+         if Operand.Is_Register_Operand then
+            Mark (Operand.R);
+            if Operand.Content = Floating_Point_Content
+              and then Operand.R < Last_Register
+            then
+               Mark (Operand.R + 1);
+            end if;
+         end if;
+      end Guard;
+
+      --------------------
+      -- Release_Guards --
+      --------------------
+
+      procedure Release_Guards is
+      begin
+         for R in Guarded'Range loop
+            if Guarded (R) then
+               This.Temps (R).Claimed := False;
+            end if;
+         end loop;
+      end Release_Guards;
+
+      ----------------------
+      -- Materialise_Pair --
+      ----------------------
+
+      procedure Materialise_Pair
+        (Operand : Aqua_Operand_Instance'Class;
+         R       : out Register_Index;
+         Claimed : out Boolean)
+      is
+      begin
+         if Operand.Is_Register_Operand then
+            R := Operand.R;
+            Claimed := False;
+         else
+            R := This.Claim_Pair;
+            Operand.Move_To_Register (This, R);
+            Claimed := True;
+         end if;
+      end Materialise_Pair;
+
    begin
+      Guard (Src_1_Op);
+      Guard (Src_2_Op);
+      Guard (Dst_Op);
+
       if Op = Op_Identity then
-         if Src_2_Image /= Dst_Image then
+         if Dst_Float and then not Src_Float then
+            --  integer to float conversion (D3: Content mismatch)
+            pragma Assert (Dst_Op.Is_Register_Operand,
+                           "flot: destination must be a register pair");
+            if Src_2_Op.Is_Register_Operand
+              or else (Src_2_Op in Constant_Operand_Instance'Class
+                       and then Constant_Operand_Instance'Class (Src_2_Op)
+                         .Value < 256)
+            then
+               This.Put_Instruction ("flot", Dst_Image, Src_2_Image);
+            else
+               declare
+                  T : constant Register_Index := This.Claim;
+               begin
+                  Src_2_Op.Move_To_Register (This, T);
+                  This.Put_Instruction
+                    ("flot", Dst_Image, Register_Image (T));
+                  This.Release (T);
+               end;
+            end if;
+         elsif Src_Float and then not Dst_Float then
+            raise Constraint_Error with
+              "aqua: cannot move float to non-float destination"
+              & " (float to integer conversion needs a fix opcode)";
+         elsif Src_2_Image /= Dst_Image then
             if Dst_Op.Is_Register_Operand then
                Src_2_Op.Move_To_Register (This, Dst_Op.R);
+            elsif Src_Float then
+               raise Constraint_Error with
+                 "aqua: float store to named object not implemented";
             else
                declare
                   T : constant Register_Index := This.Claim;
@@ -835,39 +1071,165 @@ package body Tagatha.Arch.Aqua is
       elsif Op = Op_Not then
          This.Put_Instruction ("zsz", Dst_Image, Src_2_Image, "1");
       elsif Op = Op_Negate then
-         This.Put_Instruction ("neg", Dst_Image, "0", Src_2_Image);
+         if Dst_Float or else Src_Float then
+            --  D4: negate a double by flipping the sign bit of the
+            --  high word; there is no fneg opcode
+            pragma Assert (Dst_Op.Is_Register_Operand,
+                           "float negate: destination must be a register");
+            if not (Src_2_Op.Is_Register_Operand
+                    and then Src_2_Op.R = Dst_Op.R)
+            then
+               Src_2_Op.Move_To_Register (This, Dst_Op.R);
+            end if;
+            declare
+               Mask : constant Register_Index := This.Claim;
+            begin
+               This.Put_Instruction
+                 ("seth", Register_Image (Mask), "32768");
+               This.Put_Instruction
+                 ("xor", Dst_Image, Dst_Image, Register_Image (Mask));
+               This.Release (Mask);
+            end;
+         else
+            This.Put_Instruction ("neg", Dst_Image, "0", Src_2_Image);
+         end if;
       elsif Op in Unary_Operator then
          This.Put_Instruction (Op_Name, Dst_Image, Src_2_Image);
       elsif Op = Op_Dereference then
          declare
-            Offset : constant Word_64 :=
-                       Constant_Operand_Instance'Class (Src_2).Value;
+            Offset    : constant Word_64 :=
+                          Constant_Operand_Instance'Class (Src_2).Value;
+            Lo_Offset : constant Word_64 := Offset + 4;
+
+            procedure Load (Base : String);
+            --  one 32-bit load, or two for a double (high word at
+            --  the lower address)
+
+            ----------
+            -- Load --
+            ----------
+
+            procedure Load (Base : String) is
+            begin
+               This.Put_Instruction ("ld", Dst_Image, Base, Offset'Image);
+               if Dst_Float then
+                  This.Put_Instruction
+                    ("ld", Register_Image (Dst_Op.R + 1), Base,
+                     Lo_Offset'Image);
+               end if;
+            end Load;
+
          begin
             if not Src_1_Op.Is_Register_Operand then
                declare
                   R : constant Register_Index := This.Claim;
                begin
                   Src_1_Op.Move_To_Register (This, R);
-                  This.Put_Instruction
-                    ("ld", Dst_Image, Register_Image (R), Offset'Image);
+                  Load (Register_Image (R));
                   This.Release (R);
                end;
             else
-               This.Put_Instruction
-                 ("ld", Dst_Image, Src_1_Image, Offset'Image);
+               Load (Src_1_Image);
             end if;
          end;
       elsif Op = Op_Store then
          declare
-            Offset : constant Word_64 :=
-                       Constant_Operand_Instance'Class (Src_2).Value;
-            T      : constant Register_Index := This.Claim;
+            Offset       : constant Word_64 :=
+                             Constant_Operand_Instance'Class (Src_2).Value;
+            Base         : Register_Index;
+            Base_Claimed : Boolean := False;
          begin
-            Src_1_Op.Move_To_Register (This, T);
+            if Dst_Op.Is_Register_Operand then
+               Base := Dst_Op.R;
+            else
+               Base := This.Claim;
+               Dst_Op.Move_To_Register (This, Base);
+               Base_Claimed := True;
+            end if;
+
+            if Src_1_Op.Content = Floating_Point_Content then
+               declare
+                  Lo_Offset : constant Word_64 := Offset + 4;
+                  V         : Register_Index;
+                  Claimed   : Boolean;
+               begin
+                  Materialise_Pair (Src_1_Op, V, Claimed);
+                  This.Put_Instruction
+                    ("st", Register_Image (V),
+                     Register_Image (Base), Offset'Image);
+                  This.Put_Instruction
+                    ("st", Register_Image (V + 1),
+                     Register_Image (Base), Lo_Offset'Image);
+                  if Claimed then
+                     This.Release_Pair (V);
+                  end if;
+               end;
+            else
+               declare
+                  T : constant Register_Index := This.Claim;
+               begin
+                  Src_1_Op.Move_To_Register (This, T);
+                  This.Put_Instruction
+                    ("st", Register_Image (T),
+                     Register_Image (Base), Offset'Image);
+                  This.Release (T);
+               end;
+            end if;
+
+            if Base_Claimed then
+               This.Release (Base);
+            end if;
+         end;
+      elsif Op in Floating_Point_Operator
+        or else (Op = Op_Mod and then Src_Float)
+      then
+         declare
+            F_Op     : constant String :=
+                         (if Op = Op_Mod then "frem" else Op_Name);
+            R_1, R_2 : Register_Index;
+            C_1, C_2 : Boolean;
+         begin
+            Materialise_Pair (Src_1_Op, R_1, C_1);
+            Materialise_Pair (Src_2_Op, R_2, C_2);
             This.Put_Instruction
-              ("st", Register_Image (T),
-               Register_Image (Dst_Op.R), Offset'Image);
-            This.Release (T);
+              (F_Op, Dst_Image,
+               Register_Image (R_1), Register_Image (R_2));
+            if C_2 then
+               This.Release_Pair (R_2);
+            end if;
+            if C_1 then
+               This.Release_Pair (R_1);
+            end if;
+         end;
+      elsif Op in Compare_Operator and then Src_Float then
+         --  fcmp yields -1/0/1 in a single register; feql yields 1/0.
+         --  feql is used for equality so that NaN /= NaN holds (fcmp
+         --  maps unordered to 0, which would read as equal).
+         declare
+            R_1, R_2 : Register_Index;
+            C_1, C_2 : Boolean;
+         begin
+            Materialise_Pair (Src_1_Op, R_1, C_1);
+            Materialise_Pair (Src_2_Op, R_2, C_2);
+            if Op in Op_EQ | Op_NE then
+               This.Put_Instruction
+                 ("feql", Dst_Image,
+                  Register_Image (R_1), Register_Image (R_2));
+               if Op = Op_NE then
+                  This.Put_Instruction ("zsz", Dst_Image, Dst_Image, "1");
+               end if;
+            else
+               This.Put_Instruction
+                 ("fcmp", Dst_Image,
+                  Register_Image (R_1), Register_Image (R_2));
+               This.Put_Instruction (Op_Name, Dst_Image, Dst_Image, "1");
+            end if;
+            if C_2 then
+               This.Release_Pair (R_2);
+            end if;
+            if C_1 then
+               This.Release_Pair (R_1);
+            end if;
          end;
       elsif Op = Op_Mod then
          declare
@@ -920,6 +1282,8 @@ package body Tagatha.Arch.Aqua is
             end if;
          end;
       end if;
+
+      Release_Guards;
    end Transfer;
 
 end Tagatha.Arch.Aqua;

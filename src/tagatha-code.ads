@@ -374,7 +374,7 @@ private
    function Constant_Operand
      (Value : Floating_Point_Constant)
       return Operand_Record
-   is (Constant_Operand, False, 0, Floating_Point_Content, 32,
+   is (Constant_Operand, False, 0, Floating_Point_Content, 64,
        Tagatha.Conversions.Floating_Point_To_Word_64 (Value));
 
    function Constant_Operand
@@ -455,6 +455,7 @@ private
                Control_Op     : Operand_Record;
             when Operate =>
                Op             : Operator;
+               Op_Content     : Operand_Content := General_Content;
             when Push | Pop =>
                Operand        : Operand_Record;
             when Stack =>
