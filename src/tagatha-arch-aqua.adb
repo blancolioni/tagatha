@@ -1047,9 +1047,30 @@ package body Tagatha.Arch.Aqua is
                end;
             end if;
          elsif Src_Float and then not Dst_Float then
-            raise Constraint_Error with
-              "aqua: cannot move float to non-float destination"
-              & " (float to integer conversion needs a fix opcode)";
+            --  D3: float to integer conversion.  Signed by default;
+            --  fixu needs signedness threaded through the IR.
+            declare
+               V       : Register_Index;
+               Claimed : Boolean;
+            begin
+               Materialise_Pair (Src_2_Op, V, Claimed);
+               if Dst_Op.Is_Register_Operand then
+                  This.Put_Instruction
+                    ("fix", Dst_Image, Register_Image (V));
+               else
+                  declare
+                     T : constant Register_Index := This.Claim;
+                  begin
+                     This.Put_Instruction
+                       ("fix", Register_Image (T), Register_Image (V));
+                     Dst_Op.Set_From_Register (This, T);
+                     This.Release (T);
+                  end;
+               end if;
+               if Claimed then
+                  This.Release_Pair (V);
+               end if;
+            end;
          elsif Src_2_Image /= Dst_Image then
             if Dst_Op.Is_Register_Operand then
                Src_2_Op.Move_To_Register (This, Dst_Op.R);
