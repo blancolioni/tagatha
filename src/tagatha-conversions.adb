@@ -27,11 +27,10 @@ package body Tagatha.Conversions is
    begin
       if Value >= 0 then
          return Word_64 (Value);
-      elsif Value = Int_32'First then
-         return 2 ** 63;
       else
-         return 2 ** 32 - Word_64 (-Value)
-           + (2 ** 32 - 1) * 2 ** 32;
+         --  sign extend to 64 bits; computed via not (abs Value - 1) so
+         --  that Int_32'First does not overflow on negation
+         return not Word_64 (-(Int_64 (Value) + 1));
       end if;
    end Int_32_To_Word_64;
 

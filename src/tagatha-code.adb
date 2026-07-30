@@ -51,6 +51,14 @@ package body Tagatha.Code is
       Op    : Unary_Operator)
       return Constant_Operand_Record;
 
+   function Mask
+     (Value : Word_64;
+      Bits  : Bit_Count)
+      return Word_64
+   is (if Bits in 1 .. 63 then Value mod 2 ** Natural (Bits) else Value);
+   --  Discard any bits beyond the width of the operand, so that a folded
+   --  constant holds the same pattern the target would compute at run time.
+
    procedure Improve
      (Routine : in out Routine_Record);
 
@@ -752,7 +760,11 @@ package body Tagatha.Code is
          when Op_Identity =>
             Z := Y;
          when Op_Negate =>
-            Z := Word_64'Last - Y;
+            --  two's complement, in the width of the operand; a double is
+            --  negated by flipping its sign bit instead
+            Z := (if Right.Content = Floating_Point_Content
+                  then Y xor 2 ** 63
+                  else Mask (0 - Y, Right.Bits));
          when Op_Not =>
             Z := (if Y = 0 then 1 else 0);
          when Op_Test =>
@@ -825,8 +837,19 @@ package body Tagatha.Code is
          when Op_NE =>
             Z := Boolean'Pos (X /= Y);
       end case;
-      return Constant_Operand
-        (Z, Derive_Content (Left.Content, Right.Content));
+
+      declare
+         Content : constant Operand_Content :=
+                     Derive_Content (Left.Content, Right.Content);
+      begin
+         --  note that Op_Divide and Op_Mod fold as unsigned operations, so
+         --  they are only sound for non-negative operands
+         return Constant_Operand
+           ((if Content = Floating_Point_Content
+             then Z
+             else Mask (Z, Bit_Count'Max (Left.Bits, Right.Bits))),
+            Content);
+      end;
    end Evaluate;
 
    -----------------------
