@@ -140,8 +140,12 @@ package Tagatha.Arch is
      (This         : in out Instance;
       Destination  : Operand_Interface'Class;
       Actuals      : Operand_Lists.List;
-      Result_Count : Natural)
+      Result_Count : Natural;
+      Returns      : Return_Content_Array)
    is abstract;
+   --  Returns gives the content of each of the call's return values, so a
+   --  backend that returns values in slots can map a Return_Operand index to
+   --  an offset.  Only indices 1 .. Result_Count are meaningful.
 
    procedure Jump
      (This         : in out Instance;
@@ -154,8 +158,12 @@ package Tagatha.Arch is
       Arguments : Argument_Count;
       Results   : Result_Count;
       Locals    : Local_Count;
-      Linkage   : Boolean)
+      Linkage   : Boolean;
+      Layout    : Frame_Layout)
    is abstract;
+   --  Layout gives the content of each argument, result and local slot; only
+   --  indices within the corresponding count are meaningful.  A backend whose
+   --  slots are all one word wide can ignore it.
 
    procedure End_Routine
      (This : in out Instance)

@@ -46,6 +46,40 @@ package Tagatha is
      (General_Content,
       Floating_Point_Content);
 
+   --  Per-slot content of a routine's frame.  A slot's content fixes its
+   --  width: General_Content is one machine word, Floating_Point_Content is
+   --  a double, which is two words on a 32-bit target.  A backend that lays
+   --  arguments, results and locals out in fixed-size slots maps index to
+   --  offset with a prefix sum over these widths, so it needs the content of
+   --  every *preceding* slot, not just the one being accessed -- which is why
+   --  this travels with Begin_Routine rather than with each operand.
+   --
+   --  Caller and callee must agree, so a float argument or result has to be
+   --  declared even when the routine body never touches it (see
+   --  Tagatha.Code.Set_Argument_Content).
+   type Argument_Content_Array is array (Argument_Index) of Operand_Content;
+   type Result_Content_Array   is array (Result_Index) of Operand_Content;
+   type Local_Content_Array    is array (Local_Index) of Operand_Content;
+   type Return_Content_Array   is array (Return_Index) of Operand_Content;
+
+   General_Arguments : constant Argument_Content_Array :=
+                         [others => General_Content];
+   General_Results   : constant Result_Content_Array :=
+                         [others => General_Content];
+   General_Locals    : constant Local_Content_Array :=
+                         [others => General_Content];
+   General_Returns   : constant Return_Content_Array :=
+                         [others => General_Content];
+
+   type Frame_Layout is
+      record
+         Arguments : Argument_Content_Array := General_Arguments;
+         Results   : Result_Content_Array   := General_Results;
+         Locals    : Local_Content_Array    := General_Locals;
+      end record;
+
+   General_Frame : constant Frame_Layout := (others => <>);
+
    function Derive_Content
      (Content_1, Content_2, Content_3 : Operand_Content := General_Content)
       return Operand_Content

@@ -158,6 +158,9 @@ package body Tagatha.Code is
            (Tagatha.Names.To_Name (Name),
             Options  => Routine_Options (Options),
             Last_Arg => Options.Arg_Count,
+            Layout   => (Arguments => Options.Arg_Content,
+                         Results   => Options.Res_Content,
+                         Locals    => General_Locals),
             others   => <>));
       This.Active_Routine := This.Routine_List.Last;
       --  Named labels are routine-scoped: start each routine with an empty
@@ -232,7 +235,8 @@ package body Tagatha.Code is
      (This           : in out Instance;
       Name           : String;
       Argument_Count : Natural;
-      Result_Count   : Natural)
+      Result_Count   : Natural;
+      Returns        : Return_Content_Array := General_Returns)
    is
    begin
       This.Append
@@ -247,7 +251,8 @@ package body Tagatha.Code is
             Result_Count   => Result_Count,
             Actuals        => [],
             Is_Subroutine  => True,
-            Is_Indirect    => False));
+            Is_Indirect    => False,
+            Returns        => Returns));
    end Call;
 
    ----------------------
@@ -999,7 +1004,8 @@ package body Tagatha.Code is
                      Target.Call
                        (Destination    => Get_Operand (Instruction.Name),
                         Actuals        => Actuals,
-                        Result_Count   => Instruction.Result_Count);
+                        Result_Count   => Instruction.Result_Count,
+                        Returns        => Instruction.Returns);
                   end;
                else
                   Target.Jump (Get_Operand (Instruction.Name));
@@ -1138,7 +1144,8 @@ package body Tagatha.Code is
          Target.Begin_Routine
            (Tagatha.Names.To_String (Routine.Name),
             Routine.Last_Arg, Routine.Last_Res,
-            Routine.Last_Loc, Routine.Options.Linkage);
+            Routine.Last_Loc, Routine.Options.Linkage,
+            Routine.Layout);
 
          for Index in 1 .. Routine.Transfer_Code.Last_Index loop
             Update_Temporaries (Routine, Index);
@@ -1388,7 +1395,8 @@ package body Tagatha.Code is
    procedure Indirect_Call
      (This           : in out Instance;
       Argument_Count : Natural;
-      Result_Count   : Natural)
+      Result_Count   : Natural;
+      Returns        : Return_Content_Array := General_Returns)
    is
    begin
       This.Append
@@ -1396,7 +1404,8 @@ package body Tagatha.Code is
            (Call, [], This.Line, This.Column, No_Operand,
             Argument_Count, Result_Count, [],
             Is_Subroutine => True,
-            Is_Indirect   => True));
+            Is_Indirect   => True,
+            Returns       => Returns));
    end Indirect_Call;
 
    ----------
@@ -1414,7 +1423,8 @@ package body Tagatha.Code is
             Name_Operand (Name, General_Content, False, False),
             0, 0, [],
             Is_Subroutine => False,
-            Is_Indirect   => False));
+            Is_Indirect   => False,
+            Returns       => General_Returns));
    end Jump;
 
    -----------------
@@ -2004,6 +2014,40 @@ package body Tagatha.Code is
         (Routine_Options (This) with delta Linkage => False);
    end Set_No_Linkage;
 
+   --------------------------
+   -- Set_Argument_Content --
+   --------------------------
+
+   function Set_Argument_Content
+     (This    : Routine_Options'Class;
+      Index   : Argument_Index;
+      Content : Operand_Content)
+      return Routine_Options'Class
+   is
+      Updated : Argument_Content_Array := This.Arg_Content;
+   begin
+      Updated (Index) := Content;
+      return Routine_Options'
+        (Routine_Options (This) with delta Arg_Content => Updated);
+   end Set_Argument_Content;
+
+   ------------------------
+   -- Set_Result_Content --
+   ------------------------
+
+   function Set_Result_Content
+     (This    : Routine_Options'Class;
+      Index   : Result_Index;
+      Content : Operand_Content)
+      return Routine_Options'Class
+   is
+      Updated : Result_Content_Array := This.Res_Content;
+   begin
+      Updated (Index) := Content;
+      return Routine_Options'
+        (Routine_Options (This) with delta Res_Content => Updated);
+   end Set_Result_Content;
+
    ------------------------
    -- Set_Trace_Callback --
    ------------------------
@@ -2151,16 +2195,40 @@ package body Tagatha.Code is
      (Routine : in out Routine_Record;
       From    : Instruction_Record)
    is
+      --  Widen a slot's recorded content: a declaration from Routine_Options
+      --  must never be narrowed by an access that happens to be general, and
+      --  an access to a float slot promotes a slot nobody declared.
+      procedure Widen
+        (Slot    : in out Operand_Content;
+         Content : Operand_Content);
+
+      -----------
+      -- Widen --
+      -----------
+
+      procedure Widen
+        (Slot    : in out Operand_Content;
+         Content : Operand_Content)
+      is
+      begin
+         Slot := Operand_Content'Max (Slot, Content);
+      end Widen;
+
    begin
       case From.Class is
          when Push | Pop =>
             if From.Operand.Class = Stack_Operand then
                case From.Operand.Stack_Op is
                   when Argument_Operand =>
-                     Routine.Last_Arg :=
-                       Argument_Count'Max
-                         (Routine.Last_Arg,
-                          Argument_Index (From.Operand.Index));
+                     declare
+                        Arg : constant Argument_Index :=
+                                Argument_Index (From.Operand.Index);
+                     begin
+                        Routine.Last_Arg :=
+                          Argument_Count'Max (Routine.Last_Arg, Arg);
+                        Widen (Routine.Layout.Arguments (Arg),
+                               From.Operand.Content);
+                     end;
                   when Local_Operand =>
                      declare
                         Loc : constant Local_Index :=
@@ -2174,12 +2242,19 @@ package body Tagatha.Code is
                              Local_Count'Max
                                (Routine.Last_Loc_Current, Loc);
                         end if;
+                        Widen (Routine.Layout.Locals (Loc),
+                               From.Operand.Content);
                      end;
                   when Result_Operand =>
-                     Routine.Last_Res :=
-                       Result_Count'Max
-                         (Routine.Last_Res,
-                          Result_Index (From.Operand.Index));
+                     declare
+                        Res : constant Result_Index :=
+                                Result_Index (From.Operand.Index);
+                     begin
+                        Routine.Last_Res :=
+                          Result_Count'Max (Routine.Last_Res, Res);
+                        Widen (Routine.Layout.Results (Res),
+                               From.Operand.Content);
+                     end;
                   when Return_Operand =>
                      null;
                end case;

@@ -2,3 +2,6 @@
 /lib/
 /alire/
 /config/
+
+# assembler listings produced when running the VM fixtures by hand
+/tests/share/*.lst

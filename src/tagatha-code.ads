@@ -134,16 +134,22 @@ package Tagatha.Code is
      (This        : in out Instance;
       Destination : Label);
 
+   --  Returns declares the content of each value the call returns, for the
+   --  same reason Set_Result_Content does on the callee side: the register or
+   --  stack slot of return N depends on the widths of returns 1 .. N - 1.
+   --  The default is correct whenever no return before the last is a double.
    procedure Call
      (This           : in out Instance;
       Name           : String;
       Argument_Count : Natural;
-      Result_Count   : Natural);
+      Result_Count   : Natural;
+      Returns        : Return_Content_Array := General_Returns);
 
    procedure Indirect_Call
      (This           : in out Instance;
       Argument_Count : Natural;
-      Result_Count   : Natural);
+      Result_Count   : Natural;
+      Returns        : Return_Content_Array := General_Returns);
 
    procedure Jump
      (This           : in out Instance;
@@ -208,6 +214,35 @@ package Tagatha.Code is
 
    function Set_No_Linkage
      (This  : Routine_Options'Class)
+      return Routine_Options'Class;
+
+   --  Declare the content of an argument or result slot.  A slot's content
+   --  fixes its width, and a backend maps slot index to frame offset with a
+   --  prefix sum over those widths, so the caller and the callee must agree
+   --  about every slot -- including ones the body never reads.  Declare a
+   --  float argument or result here even if it is unused; a slot whose
+   --  content is only ever seen on an access is inferred from that access,
+   --  which is enough for locals but not for the call interface.
+   function Set_Argument_Content
+     (This    : Routine_Options'Class;
+      Index   : Argument_Index;
+      Content : Operand_Content)
+      return Routine_Options'Class;
+
+   function Set_Argument_Content
+     (Index   : Argument_Index;
+      Content : Operand_Content)
+      return Routine_Options'Class;
+
+   function Set_Result_Content
+     (This    : Routine_Options'Class;
+      Index   : Result_Index;
+      Content : Operand_Content)
+      return Routine_Options'Class;
+
+   function Set_Result_Content
+     (Index   : Result_Index;
+      Content : Operand_Content)
       return Routine_Options'Class;
 
    procedure Begin_Routine
@@ -286,6 +321,8 @@ private
          Automatic_Arg_Count : Boolean := True;
          Arg_Count           : Argument_Count := 0;
          Linkage             : Boolean := True;
+         Arg_Content         : Argument_Content_Array := General_Arguments;
+         Res_Content         : Result_Content_Array   := General_Results;
       end record;
 
    function Set_Argument_Count
@@ -296,6 +333,18 @@ private
    function Set_No_Linkage
      return Routine_Options'Class
    is (Default_Options.Set_No_Linkage);
+
+   function Set_Argument_Content
+     (Index   : Argument_Index;
+      Content : Operand_Content)
+      return Routine_Options'Class
+   is (Default_Options.Set_Argument_Content (Index, Content));
+
+   function Set_Result_Content
+     (Index   : Result_Index;
+      Content : Operand_Content)
+      return Routine_Options'Class
+   is (Default_Options.Set_Result_Content (Index, Content));
 
    type Instruction_Class is
      (Block, Branch, Call, Control, Operate, Pop, Push, Stack, Transfer);
@@ -450,6 +499,7 @@ private
                Actuals        : Operand_Lists.List;
                Is_Subroutine  : Boolean;
                Is_Indirect    : Boolean;
+               Returns        : Return_Content_Array := General_Returns;
             when Control =>
                Control_Class  : Control_Instruction_Class;
                Control_Op     : Operand_Record;
@@ -498,6 +548,12 @@ private
          Last_Arg         : Argument_Count := 0;
          Last_Loc         : Local_Count    := 0;
          Last_Res         : Result_Count   := 0;
+
+         --  Per-slot content, seeded from Options at Begin_Routine and then
+         --  widened by Update as accesses are seen.  Widening only, so a
+         --  declaration is never lost and an access can only promote a slot
+         --  to the larger content.
+         Layout           : Frame_Layout   := General_Frame;
       end record;
 
    package Routine_Lists is

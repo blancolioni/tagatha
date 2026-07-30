@@ -116,7 +116,7 @@ package body Tagatha.Arch.Aqua is
       return Operand_Interface'Class
    is (Argument_Operand_Instance'
          (Content => Content,
-          R       => This.First_Arg + Register_Index (Index) - 1,
+          R       => This.Arg_Reg (Index),
           Index   => Index));
 
    overriding function Local_Operand
@@ -126,7 +126,7 @@ package body Tagatha.Arch.Aqua is
       return Operand_Interface'Class
    is (Local_Operand_Instance'
          (Content => Content,
-          R       => This.First_Local + Register_Index (Index) - 1,
+          R       => This.Local_Reg (Index),
           Index   => Index));
 
    overriding function Result_Operand
@@ -136,7 +136,7 @@ package body Tagatha.Arch.Aqua is
       return Operand_Interface'Class
    is (Result_Operand_Instance'
          (Content => Content,
-          R       => This.First_Result + Register_Index (Index) - 1,
+          R       => This.Result_Reg (Index),
           Index   => Index));
 
    overriding function Return_Operand
@@ -146,7 +146,7 @@ package body Tagatha.Arch.Aqua is
       return Operand_Interface'Class
    is (Return_Operand_Instance'
          (Content => Content,
-          R       => This.Call_Return + Register_Index (Index) - 1,
+          R       => This.Return_Reg (Index),
           Index   => Index));
 
    overriding function Constant_Operand
@@ -199,18 +199,40 @@ package body Tagatha.Arch.Aqua is
       Arguments : Argument_Count;
       Results   : Result_Count;
       Locals    : Local_Count;
-      Linkage   : Boolean)
+      Linkage   : Boolean;
+      Layout    : Frame_Layout)
    is
+      --  Arguments, then results, then locals, then temporaries, each slot
+      --  taking Slot_Width registers.  A double displaces everything after
+      --  it, so the index -> register maps are prefix sums rather than
+      --  First_X + Index - 1.
+      Next : Register_Index := 0;
    begin
       This.Put_Line (Name & ":");
-      This.First_Arg := 0;
-      This.Arg_Bound := This.First_Arg + Register_Index (Arguments);
-      This.First_Result := This.Arg_Bound;
-      This.Result_Bound := This.First_Result + Register_Index (Results);
-      This.First_Local := This.Result_Bound;
-      This.Local_Bound := This.First_Local + Register_Index (Locals);
-      This.First_Temp := This.Local_Bound;
-      This.Temp_Bound := This.First_Temp;
+
+      This.First_Arg := Next;
+      for I in 1 .. Arguments loop
+         This.Arg_Reg (I) := Next;
+         Next := Next + Slot_Width (Layout.Arguments (I));
+      end loop;
+      This.Arg_Bound := Next;
+
+      This.First_Result := Next;
+      for I in 1 .. Results loop
+         This.Result_Reg (I) := Next;
+         Next := Next + Slot_Width (Layout.Results (I));
+      end loop;
+      This.Result_Bound := Next;
+
+      This.First_Local := Next;
+      for I in 1 .. Locals loop
+         This.Local_Reg (I) := Next;
+         Next := Next + Slot_Width (Layout.Locals (I));
+      end loop;
+      This.Local_Bound := Next;
+
+      This.First_Temp := Next;
+      This.Temp_Bound := Next;
       This.Linkage := Linkage;
       if Linkage then
          This.Saved_J := This.Claim;
@@ -265,19 +287,40 @@ package body Tagatha.Arch.Aqua is
      (This           : in out Instance;
       Name           : Operand_Interface'Class;
       Actuals        : Operand_Lists.List;
-      Result_Count   : Natural)
+      Result_Count   : Natural;
+      Returns        : Return_Content_Array)
    is
       Push_Arg : constant Register_Index :=
                    Register_Index'Max (This.Temp_Bound, 1);
-      Arg_Reg  : Register_Index := This.Temp_Bound;
+      Arg_Reg  : Register_Index := This.Temp_Bound + 1;
    begin
+      --  Actuals go in the registers above Push_Arg, so that pushj shifts the
+      --  window to put the first actual at the callee's %0.  A double actual
+      --  fills the pair (Arg_Reg, Arg_Reg + 1) -- Move_To_Register copies both
+      --  halves -- so the next actual starts two registers later.
       for Arg of Actuals loop
-         Arg_Reg := Arg_Reg + 1;
-         Aqua_Operand_Instance'Class (Arg).Move_To_Register (This, Arg_Reg);
+         declare
+            Actual : Aqua_Operand_Instance'Class renames
+                       Aqua_Operand_Instance'Class (Arg);
+         begin
+            Actual.Move_To_Register (This, Arg_Reg);
+            Arg_Reg := Arg_Reg + Slot_Width (Actual.Content);
+         end;
       end loop;
 
       This.Call_Return :=
         Register_Index'Max (This.Temp_Bound, 1);
+
+      --  Return values come back at Call_Return upwards, laid out by the same
+      --  prefix sum the callee used for its results.
+      declare
+         Next : Register_Index := This.Call_Return;
+      begin
+         for I in Return_Count'(1) .. Return_Count (Result_Count) loop
+            This.Return_Reg (I) := Next;
+            Next := Next + Slot_Width (Returns (I));
+         end loop;
+      end;
 
       if Name in External_Operand_Instance'Class then
          This.Put_Instruction
@@ -403,20 +446,74 @@ package body Tagatha.Arch.Aqua is
    overriding procedure Exit_Routine
      (This : in out Instance)
    is
+      --  Width of the whole result region in REGISTERS, not slots: a double
+      --  result counts two.
+      Width : constant Register_Index :=
+                This.Result_Bound - This.First_Result;
    begin
       if This.Linkage then
          This.Put_Instruction ("put", "rJ", Register_Image (This.Saved_J));
-         if This.First_Result > 0 then
-            for R in This.First_Result .. This.Result_Bound - 1 loop
+
+         --  `pop n` moves exactly ONE register into the caller's hole -- the
+         --  callee's %(n-1) -- and the remaining n-1 become visible only
+         --  because the window base shifts down by one.  So after `pushj %H`
+         --  the caller sees
+         --
+         --     %H     <- callee %(n-1)
+         --     %(H+k) <- callee %(k-1)   for k in 1 .. n-1
+         --
+         --  i.e. the callee's %0 .. %(n-1) arrive rotated left by one.  For a
+         --  single-register result the rotation is the identity, which is why
+         --  it went unnoticed; for a double it hands the caller the low word
+         --  first, at %H, with the high word above it -- reversed, and not a
+         --  usable (R, R + 1) pair.
+         --
+         --  So rotate here, on the way out: word 0 goes to %(Width - 1) and
+         --  word w to %(w - 1).  The caller then sees the words in order and
+         --  contiguous from %H, which is what Call's Return_Reg prefix sum
+         --  assumes.
+         --
+         --  This also relies on the callee's rL exceeding Width: `pop n` reads
+         --  the hole value with Get_R (n), which returns 0 for a marginal
+         --  register when rL = n exactly.  Linkage guarantees it -- Saved_J is
+         --  claimed at or above First_Temp >= Result_Bound -- and Exit_Routine
+         --  only emits a pop when Linkage is set.
+         if Width = 1 then
+            if This.First_Result /= 0 then
                This.Put_Instruction
-                 ("set", Register_Image (R - This.First_Result),
-                  Register_Image (R));
-            end loop;
+                 ("set", Register_Image (0),
+                  Register_Image (This.First_Result));
+            end if;
+         elsif Width > 1 then
+            declare
+               Saved : constant Register_Index := This.Claim;
+            begin
+               --  Word 0 has to survive the shift below, which may overwrite
+               --  it when the result region starts at %0 (a routine with no
+               --  arguments).
+               This.Put_Instruction
+                 ("set", Register_Image (Saved),
+                  Register_Image (This.First_Result));
+
+               --  Ascending is safe: destination %D is written at step D, and
+               --  a later step reads First_Result + step + 1, which is always
+               --  above any destination already written.
+               for D in 0 .. Width - 2 loop
+                  This.Put_Instruction
+                    ("set", Register_Image (D),
+                     Register_Image (This.First_Result + D + 1));
+               end loop;
+
+               This.Put_Instruction
+                 ("set", Register_Image (Width - 1),
+                  Register_Image (Saved));
+               This.Release (Saved);
+            end;
          end if;
+
          This.Put_Instruction
            ("pop",
-            Register_Index'Image
-              (Register_Index'Max (This.Result_Bound - This.First_Result, 1)),
+            Register_Index'Image (Register_Index'Max (Width, 1)),
             "0");
       end if;
 
