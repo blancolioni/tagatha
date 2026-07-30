@@ -1359,6 +1359,7 @@ package body Tagatha.Arch.Aqua is
       else
          declare
             procedure Put (Dst, Src_1, Src_2 : String);
+            procedure Put_With_Src_2 (Dst, Src_1 : String);
 
             ---------
             -- Put --
@@ -1374,26 +1375,44 @@ package body Tagatha.Arch.Aqua is
                end if;
             end Put;
 
+            --------------------
+            -- Put_With_Src_2 --
+            --------------------
+
+            procedure Put_With_Src_2 (Dst, Src_1 : String) is
+            begin
+               if not Src_2_Op.Is_Register_Operand
+                 and then (Src_2_Op not in Constant_Operand_Instance'Class
+                           or else Constant_Operand_Instance'Class (Src_2_Op)
+                           .Value >= 256)
+               then
+                  declare
+                     R : constant Register_Index := This.Claim;
+                  begin
+                     Src_2_Op.Move_To_Register (This, R);
+                     Put (Dst, Src_1, Register_Image (R));
+                     This.Release (R);
+                  end;
+               else
+                  Put (Dst, Src_1, Src_2_Image);
+               end if;
+            end Put_With_Src_2;
+
          begin
 
-            if not Src_2_Op.Is_Register_Operand
-              and then (Src_2_Op not in Constant_Operand_Instance'Class
-                        or else Constant_Operand_Instance'Class (Src_2_Op)
-                        .Value >= 256)
-            then
+            if Src_1_Op.Is_Register_Operand then
+               Put_With_Src_2 (Dst_Image, Src_1_Image);
+            else
+               --  only the Z operand of a three operand instruction may be
+               --  immediate, so a constant in receiver position (1 + X) has
+               --  to be loaded into a register first
                declare
                   R : constant Register_Index := This.Claim;
                begin
-                  Src_2_Op.Move_To_Register (This, R);
-                  Put (Dst_Image, Src_1_Image, Register_Image (R));
-                  --  This.Put_Instruction (Op_Name, Dst_Image, Src_1_Image,
-                  --                        Register_Image (R));
+                  Src_1_Op.Move_To_Register (This, R);
+                  Put_With_Src_2 (Dst_Image, Register_Image (R));
                   This.Release (R);
                end;
-            else
-               Put (Dst_Image, Src_1_Image, Src_2_Image);
-               --  This.Put_Instruction
-               --    (Op_Name, Dst_Image, Src_1_Image, Src_2_Image);
             end if;
          end;
       end if;
