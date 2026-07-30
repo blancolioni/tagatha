@@ -51,6 +51,14 @@ package body Tagatha.Code is
       Op    : Unary_Operator)
       return Constant_Operand_Record;
 
+   function Foldable
+     (Left, Right : Constant_Operand_Record;
+      Op          : Binary_Operator)
+      return Boolean;
+   --  Op_Divide and Op_Mod fold as unsigned operations, which disagrees with
+   --  what the target computes for a negative operand, so leave those to run
+   --  time rather than folding them wrongly.
+
    function Mask
      (Value : Word_64;
       Bits  : Bit_Count)
@@ -782,9 +790,36 @@ package body Tagatha.Code is
       Op          : Binary_Operator)
       return Constant_Operand_Record
    is
-      X : constant Word_64 := Left.Word;
-      Y : constant Word_64 := Right.Word;
-      Z : Word_64;
+      X    : constant Word_64 := Left.Word;
+      Y    : constant Word_64 := Right.Word;
+      Bits : constant Bit_Count := Bit_Count'Max (Left.Bits, Right.Bits);
+      Z    : Word_64;
+
+      function Signed (Value : Word_64) return Int_64;
+
+      ------------
+      -- Signed --
+      ------------
+
+      function Signed (Value : Word_64) return Int_64 is
+         W : Word_64 := Mask (Value, Bits);
+      begin
+         --  the targets compile a comparison as a subtraction followed by a
+         --  test of the sign bit, so a folded comparison has to read its
+         --  operands as two's complement numbers Bits wide to agree
+         if Bits in 1 .. 63
+           and then W >= 2 ** (Natural (Bits) - 1)
+         then
+            W := W or not (2 ** Natural (Bits) - 1);
+         end if;
+
+         if W < 2 ** 63 then
+            return Int_64 (W);
+         else
+            return Int_64 (W - 2 ** 63) + Int_64'First;
+         end if;
+      end Signed;
+
    begin
       case Op is
          when Op_Add =>
@@ -827,13 +862,13 @@ package body Tagatha.Code is
          when Op_EQ =>
             Z := Boolean'Pos (X = Y);
          when Op_LT =>
-            Z := Boolean'Pos (X < Y);
+            Z := Boolean'Pos (Signed (X) < Signed (Y));
          when Op_GT =>
-            Z := Boolean'Pos (X > Y);
+            Z := Boolean'Pos (Signed (X) > Signed (Y));
          when Op_LE =>
-            Z := Boolean'Pos (X <= Y);
+            Z := Boolean'Pos (Signed (X) <= Signed (Y));
          when Op_GE =>
-            Z := Boolean'Pos (X >= Y);
+            Z := Boolean'Pos (Signed (X) >= Signed (Y));
          when Op_NE =>
             Z := Boolean'Pos (X /= Y);
       end case;
@@ -842,12 +877,10 @@ package body Tagatha.Code is
          Content : constant Operand_Content :=
                      Derive_Content (Left.Content, Right.Content);
       begin
-         --  note that Op_Divide and Op_Mod fold as unsigned operations, so
-         --  they are only sound for non-negative operands
          return Constant_Operand
            ((if Content = Floating_Point_Content
              then Z
-             else Mask (Z, Bit_Count'Max (Left.Bits, Right.Bits))),
+             else Mask (Z, Bits)),
             Content);
       end;
    end Evaluate;
@@ -895,6 +928,42 @@ package body Tagatha.Code is
         (Instruction_Record'
            (Control, [], This.Line, This.Column, Fail_Routine, No_Operand));
    end Fail_Routine;
+
+   --------------
+   -- Foldable --
+   --------------
+
+   function Foldable
+     (Left, Right : Constant_Operand_Record;
+      Op          : Binary_Operator)
+      return Boolean
+   is
+      Bits : constant Bit_Count := Bit_Count'Max (Left.Bits, Right.Bits);
+
+      function Negative (Value : Word_64) return Boolean;
+
+      --------------
+      -- Negative --
+      --------------
+
+      function Negative (Value : Word_64) return Boolean is
+         W : constant Word_64 := Mask (Value, Bits);
+      begin
+         return (if Bits in 1 .. 63
+                 then W >= 2 ** (Natural (Bits) - 1)
+                 else W >= 2 ** 63);
+      end Negative;
+
+   begin
+      if Op not in Op_Divide | Op_Mod
+        or else Derive_Content (Left.Content, Right.Content)
+                  = Floating_Point_Content
+      then
+         return True;
+      else
+         return not Negative (Left.Word) and then not Negative (Right.Word);
+      end if;
+   end Foldable;
 
    --------------
    -- Generate --
@@ -2159,6 +2228,7 @@ package body Tagatha.Code is
         and then Src_2.Class = Constant_Operand
         and then Op in Binary_Operator
         and then Op not in Op_Dereference | Op_Store
+        and then Foldable (Src_1, Src_2, Op)
       then
          return Instruction_Record'
            (Class  => Transfer,
