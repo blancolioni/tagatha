@@ -23,6 +23,21 @@ private
    type Register_State_Array is
      array (Register_Index) of Register_State;
 
+   --  Registers occupied by one frame slot: a double is a pair, everything
+   --  else is a single word.
+   function Slot_Width (Content : Operand_Content) return Register_Index
+   is (case Content is
+          when General_Content        => 1,
+          when Floating_Point_Content => 2);
+
+   --  Slot index -> first register of that slot.  Built by Begin_Routine (and,
+   --  for returns, by Call) as a prefix sum over Slot_Width, because a float
+   --  slot displaces every slot after it.
+   type Argument_Register_Map is array (Argument_Index) of Register_Index;
+   type Result_Register_Map   is array (Result_Index) of Register_Index;
+   type Local_Register_Map    is array (Local_Index) of Register_Index;
+   type Return_Register_Map   is array (Return_Index) of Register_Index;
+
    type Aqua_Operand_Instance is abstract new Operand_Interface with
       record
          R        : Register_Index;
@@ -48,6 +63,10 @@ private
          First_Temp       : Register_Index;
          Temp_Bound       : Register_Index;
          Call_Return      : Register_Index;
+         Arg_Reg          : Argument_Register_Map := [others => 0];
+         Result_Reg       : Result_Register_Map   := [others => 0];
+         Local_Reg        : Local_Register_Map    := [others => 0];
+         Return_Reg       : Return_Register_Map   := [others => 0];
          Temps            : Register_State_Array;
          Data_Last        : Natural := 0;
          Saved_J          : Register_Index;
@@ -135,7 +154,8 @@ private
      (This           : in out Instance;
       Name           : Operand_Interface'Class;
       Actuals        : Operand_Lists.List;
-      Result_Count   : Natural);
+      Result_Count   : Natural;
+      Returns        : Return_Content_Array);
 
    overriding procedure Jump
      (This           : in out Instance;
@@ -147,7 +167,8 @@ private
       Arguments : Argument_Count;
       Results   : Result_Count;
       Locals    : Local_Count;
-      Linkage   : Boolean);
+      Linkage   : Boolean;
+      Layout    : Frame_Layout);
 
    overriding procedure End_Routine
      (This : in out Instance);
@@ -183,12 +204,30 @@ private
 
    overriding procedure Put_Data_Buffer (This : in out Instance);
 
+   overriding procedure Datum
+     (This  : in out Instance;
+      Value : Word_64);
+
    function Claim (This : in out Instance'Class) return Register_Index;
    procedure Release
      (This : in out Instance'Class;
       R    : Register_Index)
      with Pre => R in This.First_Temp .. This.Temp_Bound - 1
        and then This.Temps (R).Claimed;
+
+   --  A double lives in the register pair (R, R + 1) for any R; the lower
+   --  register holds the high 32 bits.  There is no even-alignment rule --
+   --  the Aqua FPU operand fields are full register numbers, so parity
+   --  would only cost padding in the frame and arg region.  Claim_Pair
+   --  returns the lower register with both R and R + 1 marked claimed; it
+   --  never returns Last_Register, which has no successor.
+   function Claim_Pair (This : in out Instance'Class) return Register_Index;
+   procedure Release_Pair
+     (This : in out Instance'Class;
+      R    : Register_Index)
+     with Pre => R in This.First_Temp .. This.Temp_Bound - 2
+       and then This.Temps (R).Claimed
+       and then This.Temps (R + 1).Claimed;
 
    function Indirect_Label
      (This           : in out Instance;

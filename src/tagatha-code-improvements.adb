@@ -181,7 +181,10 @@ package body Tagatha.Code.Improvements is
         and then Current.Dst.Class = Temporary_Operand
         and then Next.Class = Transfer
         and then Next.T_Op = Op_Identity
-        and then Current.Dst = Next.Src_2;
+        and then Current.Dst = Next.Src_2
+        --  an identity with a content change is a conversion
+        --  (e.g. float to integer), not a plain move; don't merge it
+        and then Next.Src_2.Content = Next.Dst.Content;
    end Test;
 
 end Tagatha.Code.Improvements;

@@ -149,7 +149,8 @@ package body Tagatha.Arch.Pdp11 is
       Arguments : Argument_Count;
       Results   : Result_Count;
       Locals    : Local_Count;
-      Linkage   : Boolean)
+      Linkage   : Boolean;
+      Layout    : Frame_Layout)
    is
    begin
       This.Put_Line (To_Macro11_Label (Name) & ":");
@@ -200,7 +201,8 @@ package body Tagatha.Arch.Pdp11 is
      (This           : in out Instance;
       Name           : Operand_Interface'class;
       Actuals        : Operand_Lists.List;
-      Result_Count   : Natural)
+      Result_Count   : Natural;
+      Returns        : Return_Content_Array)
    is
    begin
       for Arg of Actuals loop

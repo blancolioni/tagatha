@@ -216,7 +216,8 @@ package body Tagatha.Arch.M6502 is
       Arguments : Argument_Count;
       Results   : Result_Count;
       Locals    : Local_Count;
-      Linkage   : Boolean)
+      Linkage   : Boolean;
+      Layout    : Frame_Layout)
    is
       Label : constant String :=
                 To_6502_Label (Name);
@@ -298,7 +299,8 @@ package body Tagatha.Arch.M6502 is
      (This           : in out Instance;
       Name           : Operand_Interface'class;
       Actuals        : Operand_Lists.List;
-      Result_Count   : Natural)
+      Result_Count   : Natural;
+      Returns        : Return_Content_Array)
    is
       Arg_Reg : constant String := "AXY";
       Arg_Index : Natural := Natural (Actuals.Length);

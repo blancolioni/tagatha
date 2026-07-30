@@ -101,7 +101,8 @@ private
      (This           : in out Instance;
       Name           : Operand_Interface'Class;
       Actuals        : Operand_Lists.List;
-      Result_Count   : Natural);
+      Result_Count   : Natural;
+      Returns        : Return_Content_Array);
 
    overriding procedure Jump
      (This           : in out Instance;
@@ -113,7 +114,8 @@ private
       Arguments : Argument_Count;
       Results   : Result_Count;
       Locals    : Local_Count;
-      Linkage   : Boolean);
+      Linkage   : Boolean;
+      Layout    : Frame_Layout);
 
    overriding procedure End_Routine
      (This : in out Instance);
