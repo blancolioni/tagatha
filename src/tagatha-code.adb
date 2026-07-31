@@ -271,6 +271,20 @@ package body Tagatha.Code is
             Returns        => Returns));
    end Call;
 
+   -------------
+   -- Convert --
+   -------------
+
+   procedure Convert
+     (This    : in out Instance;
+      Content : Operand_Content)
+   is
+   begin
+      This.Append
+        (Instruction_Record'
+           (Operate, [], This.Line, This.Column, Op_Identity, Content));
+   end Convert;
+
    ----------------------
    -- Create_Transfers --
    ----------------------
@@ -394,6 +408,10 @@ package body Tagatha.Code is
                             (if Instruction.Op in Unary_Operator
                              then No_Operand
                              else Pop_Operand);
+                  --  Op_Identity is only ever emitted by Convert, whose whole
+                  --  point is to change the content, so its request has to be
+                  --  taken exactly.  Every other operator derives its content
+                  --  from its operands and can only be widened.
                   T      : constant Operand_Record :=
                              (if Instruction.Op = Op_Store
                               then No_Operand
@@ -401,10 +419,12 @@ package body Tagatha.Code is
                                     Dereference => False,
                                     Offset      => 0,
                                     Content     =>
-                                      Operand_Content'Max
-                                        (Instruction.Op_Content,
-                                         Get_Content (Src_1, Src_2,
-                                           No_Operand, Instruction.Op)),
+                                      (if Instruction.Op = Op_Identity
+                                       then Instruction.Op_Content
+                                       else Operand_Content'Max
+                                         (Instruction.Op_Content,
+                                          Get_Content (Src_1, Src_2,
+                                            No_Operand, Instruction.Op))),
                                     Temp        => This.Next_Temporary));
                begin
                   if Instruction.Op = Op_Store then
