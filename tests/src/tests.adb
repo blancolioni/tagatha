@@ -13,6 +13,8 @@ procedure Tests is
    procedure Next_3X_1;
    procedure Float_Frame;
    procedure Unused_Float_Argument;
+   procedure Float_Memory;
+   procedure Float_Conversion;
 
    procedure Check
      (Name     : String;
@@ -69,6 +71,58 @@ procedure Tests is
                    & """ in " & Path);
       end if;
    end Check;
+
+   ----------------------
+   -- Float_Conversion --
+   ----------------------
+
+   procedure Float_Conversion is
+      --  double widen (int n) is return n; end
+      --  int narrow (double x) is return x; end
+      --
+      --  Convert is the only producer of Op_Identity, and its whole point is
+      --  to change the content of the value on the stack, so the requested
+      --  content has to be taken exactly rather than merged with the
+      --  operand's.
+      Code : Tagatha.Code.Instance;
+   begin
+      Code.Begin_Routine
+        ("widen",
+         Tagatha.Code.Set_Result_Content
+           (1, Tagatha.Floating_Point_Content));
+      Code.Push_Argument (1);
+      Code.Convert (Tagatha.Floating_Point_Content);
+      Code.Pop_Result (1, Tagatha.Floating_Point_Content);
+      Code.Exit_Routine;
+      Code.End_Routine;
+
+      Code.Begin_Routine
+        ("narrow",
+         Tagatha.Code.Set_Argument_Content
+           (1, Tagatha.Floating_Point_Content));
+      Code.Push_Argument (1, Tagatha.Floating_Point_Content);
+      Code.Convert (Tagatha.General_Content);
+      Code.Pop_Result (1);
+      Code.Exit_Routine;
+      Code.End_Routine;
+
+      declare
+         Target : Tagatha.Arch.Aqua.Instance;
+      begin
+         Code.Generate (Target);
+         Target.Save ("float_convert.s");
+      end;
+
+      --  widen: argument at %0, double result pair at %1/%2
+      Check ("widen: integer to double is flot", "float_convert.s",
+             "flot %1, %0");
+
+      --  narrow: double argument at %0/%1, integer result at %2.  A narrowing
+      --  conversion needs the requested content to override the operand's, so
+      --  this only appears if Op_Identity is not merged with its source.
+      Check ("narrow: double to integer is fix", "float_convert.s",
+             "fix %2, %0");
+   end Float_Conversion;
 
    -----------------
    -- Float_Frame --
@@ -172,6 +226,72 @@ procedure Tests is
              "set %0, %3");
    end Float_Frame;
 
+   ------------------
+   -- Float_Memory --
+   ------------------
+
+   procedure Float_Memory is
+      --  void copy_field (ptr p, ptr q) is p.f2 := q.f2; end,
+      --  where f2 is a double at word offset 2 of the record.
+      --
+      --  Two things are easy to get wrong here.  An immediate ld/st
+      --  displacement on Aqua is a word index -- the CPU multiplies it by
+      --  four -- so the low word of a double is one further along and not
+      --  four.  And loading a double takes two instructions, so if the base
+      --  register is part of the destination pair the first load destroys the
+      --  address the second one needs.
+      Code : Tagatha.Code.Instance;
+   begin
+      Code.Begin_Routine
+        ("copy_field", Tagatha.Code.Set_Argument_Count (2));
+
+      Code.Push_Argument (2);
+      Code.Dereference (Tagatha.Floating_Point_Content, 2);
+      Code.Push_Argument (1);
+      Code.Pop_Indirect (Tagatha.Floating_Point_Content, 2);
+
+      --  Same load, but through an address computed into a temporary, which
+      --  is how Ack reaches a property (push the object, add the offset,
+      --  dereference).  The temporary holding the address is dead after the
+      --  dereference, so the destination pair is allocated over it and the
+      --  base has to be copied somewhere safe first.
+      Code.Push_Argument (2);
+      Code.Push_Constant (Tagatha.Int_32'(8));
+      Code.Operate (Tagatha.Op_Add);
+      Code.Dereference (Tagatha.Floating_Point_Content, 0);
+      Code.Push_Argument (1);
+      Code.Pop_Indirect (Tagatha.Floating_Point_Content, 4);
+
+      Code.Exit_Routine;
+      Code.End_Routine;
+
+      declare
+         Target : Tagatha.Arch.Aqua.Instance;
+      begin
+         Code.Generate (Target);
+         Target.Save ("float_memory.s");
+      end;
+
+      --  Arguments at %0/%1 and rJ in %2, so the loaded pair is %3/%4.
+      Check ("load: high word at the word offset", "float_memory.s",
+             "ld %3, %1,  2");
+      Check ("load: low word one word further on", "float_memory.s",
+             "ld %4, %1,  3");
+      Check ("store: high word at the word offset", "float_memory.s",
+             "st %3, %0,  2");
+      Check ("store: low word one word further on", "float_memory.s",
+             "st %4, %0,  3");
+
+      --  The computed address is in %3, which is also where the pair goes, so
+      --  it is copied to %5 before either load.
+      Check ("computed base copied out of the destination pair",
+             "float_memory.s", "set %5, %3");
+      Check ("computed load: high word from the copy", "float_memory.s",
+             "ld %3, %5,  0");
+      Check ("computed load: low word from the copy", "float_memory.s",
+             "ld %4, %5,  1");
+   end Float_Memory;
+
    ---------------
    -- Next_3X_1 --
    ---------------
@@ -270,6 +390,8 @@ begin
    Next_3X_1;
    Float_Frame;
    Unused_Float_Argument;
+   Float_Memory;
+   Float_Conversion;
 
    Ada.Text_IO.Put_Line ("failures:" & Failures'Image);
    if Failures > 0 then

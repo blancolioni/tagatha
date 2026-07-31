@@ -1214,7 +1214,10 @@ package body Tagatha.Arch.Aqua is
          declare
             Offset    : constant Word_64 :=
                           Constant_Operand_Instance'Class (Src_2).Value;
-            Lo_Offset : constant Word_64 := Offset + 4;
+            --  An immediate ld/st displacement is a word index: the CPU
+            --  multiplies it by 4 (aqua-cpu.adb, Load_Store).  So the low
+            --  word of a double is one further along, not four.
+            Lo_Offset : constant Word_64 := Offset + 1;
 
             procedure Load (Base : String);
             --  one 32-bit load, or two for a double (high word at
@@ -1234,8 +1237,21 @@ package body Tagatha.Arch.Aqua is
                end if;
             end Load;
 
+            Base_Aliases_Dst : constant Boolean :=
+                                 Dst_Float
+                                   and then Dst_Op.Is_Register_Operand
+                                   and then Src_1_Op.Is_Register_Operand
+                                   and then Src_1_Op.R in
+                                     Dst_Op.R | Dst_Op.R + 1;
+            --  Loading a double takes two instructions, so the address has to
+            --  outlive the first one.  If the base register is part of the
+            --  destination pair the first load overwrites it, and the second
+            --  reads from the high word of the value just loaded.
+
          begin
-            if not Src_1_Op.Is_Register_Operand then
+            if not Src_1_Op.Is_Register_Operand
+              or else Base_Aliases_Dst
+            then
                declare
                   R : constant Register_Index := This.Claim;
                begin
@@ -1264,7 +1280,8 @@ package body Tagatha.Arch.Aqua is
 
             if Src_1_Op.Content = Floating_Point_Content then
                declare
-                  Lo_Offset : constant Word_64 := Offset + 4;
+                  --  a word index, not a byte offset; see Op_Dereference
+                  Lo_Offset : constant Word_64 := Offset + 1;
                   V         : Register_Index;
                   Claimed   : Boolean;
                begin

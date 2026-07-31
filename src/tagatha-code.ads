@@ -125,6 +125,15 @@ package Tagatha.Code is
      (This : in out Instance;
       Op   : Operator);
 
+   --  Replace the value on top of the stack with the same value held as
+   --  Content: General_Content -> Floating_Point_Content is an integer to
+   --  double conversion, and the reverse rounds to the nearest integer.
+   --  Converting to the content a value already has is a no-op move that the
+   --  peephole pass removes.
+   procedure Convert
+     (This    : in out Instance;
+      Content : Operand_Content);
+
    procedure Branch
      (This        : in out Instance;
       Condition   : Branch_Condition;
